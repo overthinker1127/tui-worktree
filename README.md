@@ -93,6 +93,7 @@ task check
 - `G` / `end`: last file
 - `e`: open selected file in `$EDITOR`
 - `d`: delete selected worktree and branch after confirmation
+- `m`: merge the selected worktree branch into a selected target branch
 - `w`: toggle diff wrap
 - `n`: toggle diff line numbers
 - `t`: open theme picker
