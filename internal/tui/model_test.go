@@ -922,6 +922,179 @@ func TestDeleteKeyBlocksProtectedWorktree(t *testing.T) {
 	}
 }
 
+func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.findForgeCLI = func() (string, bool) { return "", false }
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("missing Forge CLI should return toast command")
+	}
+	if got.creatingPR {
+		t.Fatal("missing Forge CLI should not open PR form")
+	}
+	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "gh or glab") {
+		t.Fatalf("toast = %#v, want gh/glab error", got.toast)
+	}
+}
+
+func TestPRKeyOpensFormWhenForgeCLIExists(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatalf("PR form open returned command, want nil")
+	}
+	if !got.creatingPR {
+		t.Fatal("PR key should open PR form")
+	}
+	view := ansi.Strip(got.View().Content)
+	for _, want := range []string{"Forge CLI: gh", "PR title", "PR description", "<tab> focus", "<c-o> create"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("PR form view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestPRFormTabTogglesFocusAndEscCloses(t *testing.T) {
+	model := testModel(t)
+	model.findForgeCLI = func() (string, bool) { return "glab", true }
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	model = next.(Model)
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	model = next.(Model)
+	if model.prFormFocus != prFormBody {
+		t.Fatalf("prFormFocus = %v, want body", model.prFormFocus)
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = next.(Model)
+	if model.creatingPR {
+		t.Fatal("esc should close PR form")
+	}
+}
+
+func TestPRFormSubmitRequiresTitle(t *testing.T) {
+	model := testModel(t)
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	model = next.(Model)
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("empty PR title should return toast command")
+	}
+	if !got.creatingPR {
+		t.Fatal("empty PR title should keep PR form open")
+	}
+	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "PR title is required") {
+		t.Fatalf("toast = %#v, want PR title required", got.toast)
+	}
+}
+
+func TestPRFormSubmitCreatesPullRequest(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+	var gotReq PullRequestRequest
+	model.createPullRequest = func(_ context.Context, req PullRequestRequest) error {
+		gotReq = req
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	model = next.(Model)
+	model.prTitle.SetValue("Add PR creator")
+	model.prBody.SetValue("Creates a pull request from the selected worktree.")
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("PR submit should return create command")
+	}
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if gotReq.CLI != "gh" || gotReq.WorktreeDir != "/repo/.worktrees/feature" || gotReq.Branch != "feature" {
+		t.Fatalf("request target = %#v, want gh feature worktree", gotReq)
+	}
+	if gotReq.Title != "Add PR creator" || gotReq.Body != "Creates a pull request from the selected worktree." {
+		t.Fatalf("request message = %#v, want PR title/body", gotReq)
+	}
+	if got.creatingPR {
+		t.Fatal("successful PR create should close form")
+	}
+	if got.toast.Kind != toastSuccess || got.toast.Message != "PR/MR created" {
+		t.Fatalf("toast = %#v, want PR/MR created success", got.toast)
+	}
+}
+
+func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
+	model := testModel(t)
+	model.findForgeCLI = func() (string, bool) { return "glab", true }
+	model.createPullRequest = func(context.Context, PullRequestRequest) error {
+		return errors.New("not authenticated")
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	model = next.(Model)
+	model.prTitle.SetValue("Add MR creator")
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("PR submit should return create command")
+	}
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if !got.creatingPR {
+		t.Fatal("failed PR create should keep form open")
+	}
+	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "not authenticated") {
+		t.Fatalf("toast = %#v, want auth error", got.toast)
+	}
+}
+
+func TestForgeCreateArgs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  PullRequestRequest
+		want []string
+	}{
+		{
+			name: "gh",
+			req:  PullRequestRequest{CLI: "gh", Branch: "feature", Title: "Title", Body: "Body"},
+			want: []string{"pr", "create", "--title", "Title", "--body", "Body", "--head", "feature"},
+		},
+		{
+			name: "glab",
+			req:  PullRequestRequest{CLI: "glab", Branch: "feature", Title: "Title", Body: "Body"},
+			want: []string{"mr", "create", "--title", "Title", "--description", "Body", "--source-branch", "feature", "--yes"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := forgeCreateArgs(tc.req)
+			if err != nil {
+				t.Fatalf("forgeCreateArgs() error = %v", err)
+			}
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("forgeCreateArgs() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
