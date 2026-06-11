@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -18,22 +20,32 @@ import (
 )
 
 type Config struct {
-	Context          context.Context
-	ThemeName        string
-	Theme            theme.Styles
-	ThemeNames       []string
-	Width            int
-	Height           int
-	Worktrees        []WorktreeState
-	SelectedWorktree int
-	Changes          []gitview.FileChange
-	Diff             string
-	Diffs            map[string]string
-	Error            error
-	LoadDiff         func(context.Context, string, gitview.FileChange) string
-	DeleteWorktree   func(context.Context, gitview.Worktree) error
-	Reload           func(context.Context, string) Snapshot
-	SaveTheme        func(string) error
+	Context           context.Context
+	ThemeName         string
+	Theme             theme.Styles
+	ThemeNames        []string
+	Width             int
+	Height            int
+	Worktrees         []WorktreeState
+	SelectedWorktree  int
+	Changes           []gitview.FileChange
+	Diff              string
+	Diffs             map[string]string
+	Error             error
+	LoadDiff          func(context.Context, string, gitview.FileChange) string
+	DeleteWorktree    func(context.Context, gitview.Worktree) error
+	Reload            func(context.Context, string) Snapshot
+	SaveTheme         func(string) error
+	FindForgeCLI      func() (string, bool)
+	CreatePullRequest func(context.Context, PullRequestRequest) error
+}
+
+type PullRequestRequest struct {
+	CLI         string
+	WorktreeDir string
+	Branch      string
+	Title       string
+	Body        string
 }
 
 type Snapshot struct {
@@ -97,6 +109,13 @@ type toastState struct {
 	Kind    toastKind
 }
 
+type prFormFocus int
+
+const (
+	prFormTitle prFormFocus = iota
+	prFormBody
+)
+
 type Model struct {
 	styles            theme.Styles
 	context           context.Context
@@ -121,11 +140,18 @@ type Model struct {
 	toastID           int
 	pickingTheme      bool
 	confirmDelete     bool
+	creatingPR        bool
+	prTitle           textinput.Model
+	prBody            textarea.Model
+	prFormFocus       prFormFocus
+	forgeCLI          string
 	focusedPane       focusedPane
 	loadDiff          func(context.Context, string, gitview.FileChange) string
 	deleteWorktree    func(context.Context, gitview.Worktree) error
 	reload            func(context.Context, string) Snapshot
 	saveTheme         func(string) error
+	findForgeCLI      func() (string, bool)
+	createPullRequest func(context.Context, PullRequestRequest) error
 	viewport          viewport.Model
 }
 
@@ -133,30 +159,38 @@ func NewModel(cfg Config) Model {
 	vp := viewport.New()
 	vp.SoftWrap = true
 	m := Model{
-		styles:           cfg.Theme,
-		context:          cfg.Context,
-		themeName:        cfg.ThemeName,
-		themeNames:       cfg.ThemeNames,
-		worktrees:        cfg.Worktrees,
-		selectedWorktree: cfg.SelectedWorktree,
-		changes:          cfg.Changes,
-		diffs:            cfg.Diffs,
-		err:              cfg.Error,
-		loadDiff:         cfg.LoadDiff,
-		deleteWorktree:   cfg.DeleteWorktree,
-		reload:           cfg.Reload,
-		saveTheme:        cfg.SaveTheme,
-		viewport:         vp,
-		width:            initialDimension(cfg.Width, 100),
-		height:           initialDimension(cfg.Height, 30),
-		showLineNumbers:  true,
-		focusedPane:      paneFiles,
+		styles:            cfg.Theme,
+		context:           cfg.Context,
+		themeName:         cfg.ThemeName,
+		themeNames:        cfg.ThemeNames,
+		worktrees:         cfg.Worktrees,
+		selectedWorktree:  cfg.SelectedWorktree,
+		changes:           cfg.Changes,
+		diffs:             cfg.Diffs,
+		err:               cfg.Error,
+		loadDiff:          cfg.LoadDiff,
+		deleteWorktree:    cfg.DeleteWorktree,
+		reload:            cfg.Reload,
+		saveTheme:         cfg.SaveTheme,
+		findForgeCLI:      cfg.FindForgeCLI,
+		createPullRequest: cfg.CreatePullRequest,
+		viewport:          vp,
+		width:             initialDimension(cfg.Width, 100),
+		height:            initialDimension(cfg.Height, 30),
+		showLineNumbers:   true,
+		focusedPane:       paneFiles,
 	}
 	if m.themeName == "" {
 		m.themeName = "tokyonight"
 	}
 	if m.context == nil {
 		m.context = context.Background()
+	}
+	if m.findForgeCLI == nil {
+		m.findForgeCLI = defaultFindForgeCLI
+	}
+	if m.createPullRequest == nil {
+		m.createPullRequest = defaultCreatePullRequest
 	}
 	if len(m.themeNames) == 0 {
 		m.themeNames = theme.Names()
@@ -165,6 +199,7 @@ func NewModel(cfg Config) Model {
 		m.diffs = map[string]string{}
 	}
 	m.normalizeWorktrees()
+	m.resetPRForm()
 	if cfg.Diff != "" && len(cfg.Changes) > 0 {
 		m.diffs[m.diffKey(cfg.Changes[0])] = cfg.Diff
 	}
@@ -202,6 +237,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.showErrorToast(fmt.Sprintf("editor failed: %s", msg.err))
 		}
 		return m, nil
+	case pullRequestFinishedMsg:
+		if msg.err != nil {
+			return m, m.showErrorToast(fmt.Sprintf("PR/MR create failed: %s", msg.err))
+		}
+		m.creatingPR = false
+		return m, m.showSuccessToast("PR/MR created")
 	case deleteWorktreeFinishedMsg:
 		m.confirmDelete = false
 		if msg.err != nil {
@@ -247,6 +288,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 	case tea.KeyPressMsg:
+		if m.creatingPR {
+			return m.handlePRFormKey(msg)
+		}
 		if m.confirmDelete {
 			return m.handleDeleteConfirmKey(msg)
 		}
@@ -272,6 +316,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openSelectedFileInEditor()
 		case "d":
 			return m, m.openDeleteConfirm()
+		case "p":
+			return m, m.openPRForm()
 		case "tab":
 			m.moveWorktree(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -368,6 +414,8 @@ func (m Model) View() tea.View {
 		body = m.renderOverlay(body, m.renderThemePicker())
 	} else if m.confirmDelete {
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
+	} else if m.creatingPR {
+		body = m.renderOverlay(body, m.renderPRForm())
 	}
 	body = m.renderToast(body)
 
@@ -450,6 +498,46 @@ func rightAlignText(text string, width int) string {
 		return ansi.Cut(text, textWidth-width, textWidth)
 	}
 	return strings.Repeat(" ", width-textWidth) + text
+}
+
+func defaultFindForgeCLI() (string, bool) {
+	for _, name := range []string{"gh", "glab"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func defaultCreatePullRequest(ctx context.Context, req PullRequestRequest) error {
+	args, err := forgeCreateArgs(req)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, req.CLI, args...)
+	if req.WorktreeDir != "" {
+		cmd.Dir = req.WorktreeDir
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail != "" {
+			return fmt.Errorf("%s %v: %w: %s", req.CLI, args, err, detail)
+		}
+		return fmt.Errorf("%s %v: %w", req.CLI, args, err)
+	}
+	return nil
+}
+
+func forgeCreateArgs(req PullRequestRequest) ([]string, error) {
+	switch req.CLI {
+	case "gh":
+		return []string{"pr", "create", "--title", req.Title, "--body", req.Body, "--head", req.Branch}, nil
+	case "glab":
+		return []string{"mr", "create", "--title", req.Title, "--description", req.Body, "--source-branch", req.Branch, "--yes"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported Forge CLI %q", req.CLI)
+	}
 }
 
 func (m Model) autoRefreshCmd() tea.Cmd {
@@ -654,6 +742,103 @@ func (m *Model) openDeleteConfirm() tea.Cmd {
 	m.confirmDelete = true
 	m.focusedPane = paneWorktrees
 	return nil
+}
+
+func (m *Model) openPRForm() tea.Cmd {
+	cli, ok := m.findForgeCLI()
+	if !ok {
+		return m.showErrorToast("Forge CLI missing: install gh or glab")
+	}
+	m.forgeCLI = cli
+	m.creatingPR = true
+	m.focusedPane = paneWorktrees
+	m.resetPRForm()
+	return nil
+}
+
+func (m *Model) resetPRForm() {
+	m.prTitle = textinput.New()
+	m.prTitle.Prompt = ""
+	m.prTitle.Placeholder = "PR title"
+	m.prTitle.SetWidth(48)
+	m.prTitle.Focus()
+
+	m.prBody = textarea.New()
+	m.prBody.Prompt = ""
+	m.prBody.Placeholder = "PR description"
+	m.prBody.ShowLineNumbers = false
+	m.prBody.SetWidth(48)
+	m.prBody.SetHeight(5)
+	m.prBody.Blur()
+
+	m.prFormFocus = prFormTitle
+}
+
+func (m Model) handlePRFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+o" || (msg.Code == 'o' && msg.Mod == tea.ModCtrl) {
+		return m, m.createPullRequestCmd()
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.creatingPR = false
+		return m, nil
+	case "tab", "shift+tab":
+		m.togglePRFormFocus()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	if m.prFormFocus == prFormTitle {
+		m.prTitle, cmd = m.prTitle.Update(msg)
+		return m, cmd
+	}
+	m.prBody, cmd = m.prBody.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) togglePRFormFocus() {
+	if m.prFormFocus == prFormTitle {
+		m.prTitle.Blur()
+		m.prBody.Focus()
+		m.prFormFocus = prFormBody
+		return
+	}
+	m.prBody.Blur()
+	m.prTitle.Focus()
+	m.prFormFocus = prFormTitle
+}
+
+func (m *Model) createPullRequestCmd() tea.Cmd {
+	req, err := m.pullRequestRequest()
+	if err != nil {
+		return m.showErrorToast(err.Error())
+	}
+	return func() tea.Msg {
+		return pullRequestFinishedMsg{err: m.createPullRequest(m.context, req)}
+	}
+}
+
+func (m Model) pullRequestRequest() (PullRequestRequest, error) {
+	worktree := m.SelectedWorktree()
+	title := strings.TrimSpace(m.prTitle.Value())
+	if title == "" {
+		return PullRequestRequest{}, fmt.Errorf("PR title is required")
+	}
+	if worktree.Path == "" {
+		return PullRequestRequest{}, fmt.Errorf("no worktree selected")
+	}
+	if worktree.Branch == "" || worktree.Branch == "detached" {
+		return PullRequestRequest{}, fmt.Errorf("selected worktree has no branch")
+	}
+	return PullRequestRequest{
+		CLI:         m.forgeCLI,
+		WorktreeDir: worktree.Path,
+		Branch:      worktree.Branch,
+		Title:       title,
+		Body:        strings.TrimSpace(m.prBody.Value()),
+	}, nil
 }
 
 func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1155,6 +1340,26 @@ func (m Model) renderDeleteConfirm() string {
 func (m Model) confirmButton(key, label string) string {
 	keyText := m.styles.DiffHunk.Bold(true).Render("[" + key + "]")
 	return keyText + m.styles.Diff.Render(label)
+}
+
+func (m Model) renderPRForm() string {
+	width := min(max(48, m.width-8), 78)
+	titleInput := m.prTitle
+	bodyInput := m.prBody
+	titleInput.SetWidth(max(1, panelInnerWidth(width)))
+	bodyInput.SetWidth(max(1, panelInnerWidth(width)))
+
+	bodyPanelHeight := min(10, max(5, m.bodyHeight()-8))
+	bodyInput.SetHeight(max(1, panelInnerHeight(bodyPanelHeight)))
+
+	header := m.styles.Title.
+		Background(m.overlayPanelStyle().GetBackground()).
+		Width(width).
+		Render(iconPR + " Forge CLI: " + m.forgeCLI)
+	title := m.renderPanel(width, 3, m.prFormFocus == prFormTitle, "PR title", titleInput.View())
+	bodyTitle := "PR description    <tab> focus    <c-o> create"
+	body := m.renderPanel(width, bodyPanelHeight, m.prFormFocus == prFormBody, bodyTitle, bodyInput.View())
+	return lipgloss.JoinVertical(lipgloss.Left, header, title, body)
 }
 
 func (m Model) renderThemePicker() string {
@@ -1684,6 +1889,10 @@ type toastExpiredMsg struct {
 }
 
 type editorFinishedMsg struct {
+	err error
+}
+
+type pullRequestFinishedMsg struct {
 	err error
 }
 
