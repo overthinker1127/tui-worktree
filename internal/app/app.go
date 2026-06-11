@@ -32,7 +32,7 @@ func ParseArgs(args []string) (Options, error) {
 	fs := flag.NewFlagSet("tui-worktree", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	opts := Options{Dir: ".", Theme: "tokyonight"}
+	opts := Options{Dir: "."}
 	fs.StringVar(&opts.Dir, "repo", opts.Dir, "repository path")
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "theme preset: "+strings.Join(theme.Names(), ", "))
 	if err := fs.Parse(args); err != nil {
@@ -79,6 +79,9 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 		},
 		Reload: func(ctx context.Context, selectedWorktreePath string) tui.Snapshot {
 			return loadSnapshot(ctx, repo, selectedWorktreePath)
+		},
+		SaveTheme: func(name string) error {
+			return SaveConfig(UserConfig{Theme: name})
 		},
 	})
 }
@@ -162,7 +165,7 @@ func min(a, b int) int {
 
 func Run(ctx context.Context, opts Options) error {
 	repo := gitview.Repository{Dir: opts.Dir}
-	model := LoadModel(ctx, repo, opts.Theme)
+	model := LoadModel(ctx, repo, ResolveTheme(opts))
 	_, err := tea.NewProgram(model).Run()
 	return err
 }

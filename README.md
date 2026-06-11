@@ -14,6 +14,14 @@ Override repo or theme:
 task run REPO=/path/to/repo THEME=kanagawa
 ```
 
+Theme changes made from the TUI are saved to:
+
+```text
+~/.config/tui-worktree/config.json
+```
+
+`--theme` still overrides the saved theme for that run.
+
 Install:
 
 ```bash
