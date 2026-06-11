@@ -89,8 +89,9 @@ func TestDiffStylesUseLineBackgrounds(t *testing.T) {
 	styles := NewStyles(tm)
 	added := styles.DiffAddition.Width(12).Render("+hello")
 	deleted := styles.DiffDeletion.Width(12).Render("-hello")
+	neutral := styles.Diff.Width(12).Render("[Image #1]")
 
-	for name, rendered := range map[string]string{"added": added, "deleted": deleted} {
+	for name, rendered := range map[string]string{"added": added, "deleted": deleted, "neutral": neutral} {
 		if !containsEscape(rendered, "48;2;") {
 			t.Fatalf("%s diff style = %q, want background color escape", name, rendered)
 		}

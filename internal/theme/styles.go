@@ -25,6 +25,7 @@ type Styles struct {
 func NewStyles(t Theme) Styles {
 	addedBackground := firstNonEmpty(t.AddedBackground, "#123524")
 	deletedBackground := firstNonEmpty(t.DeletedBackground, "#3a1f2b")
+	panelBackground := lipgloss.Color(t.Panel)
 	return Styles{
 		App:            lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(lipgloss.Color(t.Background)),
 		Title:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.Foreground)),
@@ -37,12 +38,12 @@ func NewStyles(t Theme) Styles {
 		Added:          lipgloss.NewStyle().Foreground(lipgloss.Color(t.Added)),
 		Deleted:        lipgloss.NewStyle().Foreground(lipgloss.Color(t.Deleted)),
 		Error:          lipgloss.NewStyle().Foreground(lipgloss.Color(t.Error)).Bold(true),
-		Footer:         lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)),
-		Diff:           lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)),
-		DiffHunk:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)),
+		Footer:         lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Background(panelBackground),
+		Diff:           lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(panelBackground),
+		DiffHunk:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Background(panelBackground),
 		DiffAddition:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Added)).Background(lipgloss.Color(addedBackground)),
 		DiffDeletion:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Deleted)).Background(lipgloss.Color(deletedBackground)),
-		DiffFileHeader: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Bold(true),
+		DiffFileHeader: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Background(panelBackground).Bold(true),
 	}
 }
 

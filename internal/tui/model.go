@@ -58,6 +58,8 @@ const (
 	iconTheme     = ""
 	iconHelp      = "󰋖"
 	iconQuit      = "󰩈"
+	iconKey       = "󰌌"
+	iconStatus    = "󰎟"
 )
 
 type focusedPane int
@@ -230,7 +232,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() tea.View {
 	leftWidth, rightWidth := m.layoutWidths()
-	contentHeight := max(4, m.height-4)
+	contentHeight := m.bodyHeight()
 
 	worktreeHeight := m.worktreePaneHeight(contentHeight)
 	worktrees := m.renderWorktrees(leftWidth, worktreeHeight)
@@ -239,11 +241,7 @@ func (m Model) View() tea.View {
 	diff := m.renderDiff(rightWidth, contentHeight)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
-	header := m.styles.Title.Render("Files changed")
-	footer := m.styles.Footer.Render(m.footerText())
-	if m.err != nil {
-		footer = m.styles.Error.Render(m.err.Error())
-	}
+	footer := m.renderFooter()
 	if m.pickingTheme {
 		body = m.renderOverlay(body, m.renderThemePicker())
 	} else if m.showHelp {
@@ -251,7 +249,7 @@ func (m Model) View() tea.View {
 	}
 
 	view := tea.NewView(m.styles.App.Width(m.width).Height(m.height).Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, body, footer),
+		lipgloss.JoinVertical(lipgloss.Left, body, footer),
 	))
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
@@ -259,11 +257,44 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) footerText() string {
-	text := fmt.Sprintf("1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconRefresh, iconTheme, iconHelp, iconQuit)
-	if m.status != "" {
-		return m.status + "  " + text
+	segments := []string{
+		fmt.Sprintf("%s 1-9 worktree", iconWorktree),
+		fmt.Sprintf("%s tab next", iconKey),
+		fmt.Sprintf("%s j/k file", iconFile),
+		fmt.Sprintf("%s r refresh", iconRefresh),
+		fmt.Sprintf("%s t themes", iconTheme),
+		fmt.Sprintf("%s ? help", iconHelp),
+		fmt.Sprintf("%s q quit", iconQuit),
 	}
-	return text
+	if m.status != "" {
+		segments = append([]string{fmt.Sprintf("%s %s", iconStatus, m.status)}, segments...)
+	}
+	return strings.Join(segments, " │ ")
+}
+
+func (m Model) renderFooter() string {
+	style := m.styles.Footer
+	text := m.footerText()
+	if m.err != nil {
+		style = m.styles.Error
+		text = m.err.Error()
+	}
+	width := m.width
+	if width <= 0 {
+		return style.Render(text)
+	}
+	return style.Width(width).Render(rightAlignText(text, width))
+}
+
+func rightAlignText(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	textWidth := lipgloss.Width(text)
+	if textWidth >= width {
+		return ansi.Cut(text, textWidth-width, textWidth)
+	}
+	return strings.Repeat(" ", width-textWidth) + text
 }
 
 func (m Model) Selected() gitview.FileChange {
@@ -388,17 +419,17 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 		}
 		return false
 	}
+	contentHeight := m.bodyHeight()
+	if mouse.Y < 2 || mouse.Y >= contentHeight {
+		return false
+	}
 	leftWidth, _ := m.layoutWidths()
 	if mouse.X >= leftWidth {
 		m.focusedPane = paneDiff
 		return false
 	}
-	if mouse.Y < 3 {
-		return false
-	}
-	contentHeight := max(4, m.height-4)
 	worktreeHeight := m.worktreePaneHeight(contentHeight)
-	bodyY := mouse.Y - 1
+	bodyY := mouse.Y
 	if bodyY >= 0 && bodyY < worktreeHeight {
 		index := m.worktreeListOffset(worktreeHeight) + bodyY - 2
 		if index >= 0 && index < len(m.worktrees) {
@@ -504,7 +535,7 @@ func (m *Model) selectWorktree(index int) {
 
 func (m *Model) resizeViewport() {
 	_, rightWidth := m.layoutWidths()
-	contentHeight := max(4, m.height-4)
+	contentHeight := m.bodyHeight()
 	m.viewport.SetWidth(max(10, panelInnerWidth(rightWidth)))
 	m.viewport.SetHeight(max(3, panelInnerHeight(contentHeight)-1))
 }
@@ -684,7 +715,7 @@ func (m Model) overlayPosition(foreground string) (int, int) {
 	fgWidth := lipgloss.Width(foreground)
 	fgHeight := lipgloss.Height(foreground)
 	bodyWidth := m.width
-	bodyHeight := max(4, m.height-4)
+	bodyHeight := m.bodyHeight()
 	x := max(0, (bodyWidth-fgWidth)/2)
 	y := max(0, (bodyHeight-fgHeight)/3)
 	return x, y
@@ -721,6 +752,10 @@ func (m Model) layoutWidths() (int, int) {
 	left := max(28, min(44, width/3))
 	right := max(30, width-left)
 	return left, right
+}
+
+func (m Model) bodyHeight() int {
+	return max(4, m.height-1)
 }
 
 func (m Model) worktreePaneHeight(contentHeight int) int {
