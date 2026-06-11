@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
@@ -236,9 +237,9 @@ func (m Model) View() tea.View {
 		footer = m.styles.Error.Render(m.err.Error())
 	}
 	if m.pickingTheme {
-		body = m.renderThemePicker()
+		body = m.renderOverlay(body, m.renderThemePicker())
 	} else if m.showHelp {
-		body = m.renderHelp()
+		body = m.renderOverlay(body, m.renderHelp())
 	}
 
 	view := tea.NewView(m.styles.App.Width(m.width).Height(m.height).Render(
@@ -355,7 +356,12 @@ func (m *Model) applyThemeCursor() {
 
 func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	if m.pickingTheme {
-		index := mouse.Y - 3
+		overlay := m.renderThemePicker()
+		x, y := m.overlayPosition(overlay)
+		if mouse.X < x || mouse.X >= x+lipgloss.Width(overlay) {
+			return false
+		}
+		index := mouse.Y - y - 3
 		if index >= 0 && index < len(m.themeNames) {
 			m.themeCursor = index
 			m.applyThemeCursor()
@@ -610,6 +616,36 @@ func (m Model) renderThemePicker() string {
 		lines = append(lines, line)
 	}
 	return m.styles.PanelFocused.Width(34).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderOverlay(background, foreground string) string {
+	fgWidth := lipgloss.Width(foreground)
+	fgHeight := lipgloss.Height(foreground)
+	x, y := m.overlayPosition(foreground)
+
+	bgLines := strings.Split(background, "\n")
+	fgLines := strings.Split(foreground, "\n")
+	if len(bgLines) < y+fgHeight {
+		bgLines = append(bgLines, make([]string, y+fgHeight-len(bgLines))...)
+	}
+	for i, line := range fgLines {
+		bgIndex := y + i
+		bgLine := bgLines[bgIndex]
+		left := ansi.Cut(bgLine, 0, x)
+		right := ansi.Cut(bgLine, x+fgWidth, lipgloss.Width(bgLine))
+		bgLines[bgIndex] = left + line + right
+	}
+	return strings.Join(bgLines, "\n")
+}
+
+func (m Model) overlayPosition(foreground string) (int, int) {
+	fgWidth := lipgloss.Width(foreground)
+	fgHeight := lipgloss.Height(foreground)
+	bodyWidth := m.width
+	bodyHeight := max(4, m.height-4)
+	x := max(0, (bodyWidth-fgWidth)/2)
+	y := max(0, (bodyHeight-fgHeight)/3)
+	return x, y
 }
 
 func (m Model) renderDiffContent(diff string, width int) string {

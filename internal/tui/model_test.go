@@ -66,7 +66,7 @@ func TestQuestionMarkTogglesHelp(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	view := next.(Model).View().Content
 
-	for _, want := range []string{"Help", " r refresh", " t themes"} {
+	for _, want := range []string{"Help", " r refresh", " t themes", "a.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q in %q", want, view)
 		}
@@ -105,6 +105,18 @@ func TestThemePickerSavesTheme(t *testing.T) {
 
 	if saved != "kanagawa" {
 		t.Fatalf("saved theme = %q, want kanagawa", saved)
+	}
+}
+
+func TestThemePickerRendersAsOverlay(t *testing.T) {
+	model := testModel(t)
+	model.openThemePicker()
+
+	view := model.View().Content
+	for _, want := range []string{"Themes", "a.go"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("theme overlay view missing %q in %q", want, view)
+		}
 	}
 }
 
@@ -293,8 +305,10 @@ func TestMouseClickSelectsTheme(t *testing.T) {
 	model := testModel(t)
 	model.themeNames = []string{"tokyonight", "gruvbox"}
 	model.openThemePicker()
+	overlay := model.renderThemePicker()
+	x, y := model.overlayPosition(overlay)
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 4}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 4}))
 	got := next.(Model)
 
 	if got.themeName != "gruvbox" {
