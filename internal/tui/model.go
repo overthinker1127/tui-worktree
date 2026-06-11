@@ -1135,7 +1135,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 		if mouse.X < x || mouse.X >= x+lipgloss.Width(overlay) {
 			return false, nil
 		}
-		index := mouse.Y - y - 3
+		index := mouse.Y - y - 2
 		offset := m.themePickerOffset()
 		if index >= 0 && index < m.themePickerVisibleRows() && offset+index < len(m.themeNames) {
 			m.themeCursor = offset + index
