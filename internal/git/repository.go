@@ -106,7 +106,56 @@ func (r Repository) Worktrees(ctx context.Context) ([]Worktree, error) {
 	if err != nil {
 		return nil, err
 	}
+	defaultBranch := r.defaultBranch(ctx, root, worktrees)
+	markProtectedWorktrees(worktrees, defaultBranch)
 	return worktrees, nil
+}
+
+func (r Repository) defaultBranch(ctx context.Context, root string, worktrees []Worktree) string {
+	out, err := r.runner().Run(ctx, root, "git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err == nil {
+		if branch := shortRemoteBranch(trimTrailingNewline(out)); branch != "" {
+			return branch
+		}
+	}
+	out, err = r.runner().Run(ctx, root, "git", "config", "--get", "init.defaultBranch")
+	if err == nil {
+		if branch := trimTrailingNewline(out); branch != "" {
+			return branch
+		}
+	}
+	return inferDefaultBranch(worktrees)
+}
+
+func shortRemoteBranch(branch string) string {
+	if branch == "" {
+		return ""
+	}
+	if index := strings.IndexByte(branch, '/'); index >= 0 {
+		return branch[index+1:]
+	}
+	return branch
+}
+
+func inferDefaultBranch(worktrees []Worktree) string {
+	for _, candidate := range []string{"main", "master", "trunk"} {
+		for _, worktree := range worktrees {
+			if worktree.Branch == candidate {
+				return candidate
+			}
+		}
+	}
+	if len(worktrees) > 0 {
+		return worktrees[0].Branch
+	}
+	return ""
+}
+
+func markProtectedWorktrees(worktrees []Worktree, defaultBranch string) {
+	for i := range worktrees {
+		worktrees[i].DefaultBranch = defaultBranch != "" && worktrees[i].Branch == defaultBranch
+		worktrees[i].Protected = worktrees[i].Primary || worktrees[i].DefaultBranch
+	}
 }
 
 func (r Repository) runner() Runner {

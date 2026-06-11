@@ -178,6 +178,7 @@ func ParseWorktreeList(output string, currentPath string) ([]Worktree, error) {
 			return nil, fmt.Errorf("parse worktree block %q: missing path", block)
 		}
 		worktree.Current = worktree.Path == currentPath
+		worktree.Primary = len(worktrees) == 0
 		worktrees = append(worktrees, worktree)
 	}
 	return worktrees, nil

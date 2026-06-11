@@ -20,10 +20,13 @@ type FileChange struct {
 }
 
 type Worktree struct {
-	Path    string
-	Branch  string
-	Head    string
-	Current bool
+	Path          string
+	Branch        string
+	Head          string
+	Current       bool
+	Primary       bool
+	DefaultBranch bool
+	Protected     bool
 }
 
 type LineStat struct {

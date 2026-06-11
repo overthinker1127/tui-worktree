@@ -88,8 +88,9 @@ func TestRepositoryChangesWrapsStatusError(t *testing.T) {
 
 func TestRepositoryWorktrees(t *testing.T) {
 	runner := &fakeRunner{outputs: map[string]string{
-		"git rev-parse --show-toplevel": "/repo\n",
-		"git worktree list --porcelain": "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo/.worktrees/feature\nHEAD def456\nbranch refs/heads/feature\n",
+		"git rev-parse --show-toplevel":                             "/repo\n",
+		"git worktree list --porcelain":                             "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo/.worktrees/feature\nHEAD def456\nbranch refs/heads/feature\n",
+		"git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
 	}}
 	repo := Repository{Runner: runner}
 
@@ -99,7 +100,7 @@ func TestRepositoryWorktrees(t *testing.T) {
 	}
 
 	want := []Worktree{
-		{Path: "/repo", Branch: "main", Head: "abc123", Current: true},
+		{Path: "/repo", Branch: "main", Head: "abc123", Current: true, Primary: true, DefaultBranch: true, Protected: true},
 		{Path: "/repo/.worktrees/feature", Branch: "feature", Head: "def456"},
 	}
 	if !reflect.DeepEqual(got, want) {
