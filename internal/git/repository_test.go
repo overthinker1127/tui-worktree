@@ -56,6 +56,22 @@ func TestRepositoryDiffReturnsUntrackedMessage(t *testing.T) {
 	}
 }
 
+func TestRepositoryDiffRequestsUncoloredOutput(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"git diff --no-ext-diff --find-renames --color=never HEAD -- README.md": "diff --git a/README.md b/README.md\n",
+	}}
+	repo := Repository{Runner: runner}
+
+	_, err := repo.Diff(context.Background(), FileChange{Path: "README.md", Status: Modified})
+	if err != nil {
+		t.Fatalf("Diff() error = %v", err)
+	}
+	want := "git diff --no-ext-diff --find-renames --color=never HEAD -- README.md"
+	if len(runner.calls) != 1 || runner.calls[0] != want {
+		t.Fatalf("Diff() command = %#v, want %q", runner.calls, want)
+	}
+}
+
 func TestRepositoryChangesWrapsStatusError(t *testing.T) {
 	runner := &fakeRunner{
 		errs: map[string]error{"git status --porcelain=v1 -z": errors.New("not a repo")},

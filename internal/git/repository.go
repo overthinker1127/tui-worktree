@@ -53,7 +53,7 @@ func (r Repository) Diff(ctx context.Context, change FileChange) (string, error)
 	if change.Status == Untracked {
 		return fmt.Sprintf("Untracked file: %s\n\nNo diff is available until the file is added to git.", change.Path), nil
 	}
-	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=always", "HEAD", "--"}
+	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=never", "HEAD", "--"}
 	if change.Status == Renamed && change.OldPath != "" {
 		args = append(args, change.OldPath, change.Path)
 	} else {
