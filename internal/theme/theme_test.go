@@ -96,6 +96,11 @@ func TestDiffStylesUseLineBackgrounds(t *testing.T) {
 			t.Fatalf("%s diff style = %q, want background color escape", name, rendered)
 		}
 	}
+	for name, rendered := range map[string]string{"added": added, "deleted": deleted} {
+		if !containsEscape(rendered, "38;2;192;202;245") {
+			t.Fatalf("%s diff style = %q, want theme foreground escape", name, rendered)
+		}
+	}
 }
 
 func contains(items []string, want string) bool {
