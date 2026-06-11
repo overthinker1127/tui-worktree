@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
@@ -106,7 +107,7 @@ func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model.refreshDiff()
 
 	view := model.View().Content
-	for _, want := range []string{"worktrees", "main", "feature", "main.go"} {
+	for _, want := range []string{"worktrees", "1", "2", "main", "feature", "main.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("worktree sidebar missing %q in %q", want, view)
 		}
@@ -134,6 +135,45 @@ func TestTabSwitchesWorktree(t *testing.T) {
 
 	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
 		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
+	}
+}
+
+func TestNumberKeySwitchesWorktree(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "feature.go", Status: gitview.Added}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.changes = model.worktrees[0].Changes
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "2", Code: '2'}))
+	got := next.(Model)
+
+	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
+		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
+	}
+}
+
+func TestSidebarPanelsFillBodyHeight(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 30
+	leftWidth, _ := model.layoutWidths()
+	contentHeight := max(4, model.height-4)
+	worktrees := model.renderWorktrees(leftWidth, model.worktreePaneHeight(contentHeight))
+	files := model.renderFiles(leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)))
+	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
+
+	if got := lipgloss.Height(sidebar); got != contentHeight {
+		t.Fatalf("sidebar height = %d, want %d", got, contentHeight)
 	}
 }
 
