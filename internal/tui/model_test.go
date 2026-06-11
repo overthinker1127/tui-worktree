@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -148,10 +149,53 @@ func TestThemePickerRendersAsOverlay(t *testing.T) {
 	model.openThemePicker()
 
 	view := model.View().Content
-	for _, want := range []string{"Themes", "a.go"} {
+	for _, want := range []string{"Themes", "a.go", iconSelected + " tokyonight"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("theme overlay view missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestThemePickerScrollsToCursor(t *testing.T) {
+	model := testModel(t)
+	model.height = 12
+	model.themeNames = []string{
+		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
+		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
+		"theme-11", "theme-12", "theme-13", "theme-14", "theme-15",
+	}
+	model.themeCursor = 12
+	model.pickingTheme = true
+
+	view := ansi.Strip(model.renderThemePicker())
+
+	if !strings.Contains(view, iconSelected+" theme-13") {
+		t.Fatalf("theme picker should keep cursor visible: %q", view)
+	}
+	if strings.Contains(view, "theme-01") {
+		t.Fatalf("theme picker should not render every theme when constrained: %q", view)
+	}
+}
+
+func TestMouseClickSelectsScrolledTheme(t *testing.T) {
+	model := testModel(t)
+	model.height = 12
+	model.themeNames = []string{
+		"ayu", "catppuccin", "dracula", "everforest", "gruvbox",
+		"kanagawa", "monokai", "nord", "one-dark", "rose-pine",
+		"solarized", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
+	}
+	model.themeCursor = 12
+	model.pickingTheme = true
+	model.saveTheme = func(string) error { return nil }
+	overlay := model.renderThemePicker()
+	x, y := model.overlayPosition(overlay)
+
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 4}))
+	got := next.(Model)
+
+	if got.themeName != "nord" {
+		t.Fatalf("themeName = %q, want nord", got.themeName)
 	}
 }
 
@@ -168,8 +212,9 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	model := testModel(t)
 
 	footer := model.footerText()
-	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "t themes", "? help", "q quit"} {
-		if !strings.Contains(footer, want) {
+	plain := ansi.Strip(footer)
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "e edit", "w wrap", "n nums", "t themes", "? help", "q quit"} {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
 	}
@@ -180,6 +225,29 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
+	}
+	for _, want := range []string{"1/2/3", "tab", "hjkl", "e", "w", "n", "t", "?", "q"} {
+		if !strings.Contains(footer, "\x1b[1;") || !strings.Contains(plain, want) {
+			t.Fatalf("footer key %q should be bold in %q", want, footer)
+		}
+	}
+}
+
+func TestFooterKeysUseBadgeBackground(t *testing.T) {
+	model := testModel(t)
+
+	hint := model.footerHint("", "w", "wrap")
+	keyBackground := styleBackgroundToken(model.styles.FileSelected)
+	footerBackground := styleBackgroundToken(model.styles.Footer)
+
+	if keyBackground == "" || !strings.Contains(hint, keyBackground) {
+		t.Fatalf("footer key should use badge background %q in %q", keyBackground, hint)
+	}
+	if footerBackground == "" || !strings.Contains(hint, footerBackground) {
+		t.Fatalf("footer label should use footer background %q in %q", footerBackground, hint)
+	}
+	if strings.Count(hint, keyBackground) != 1 {
+		t.Fatalf("footer key background should only be applied to key: %q", hint)
 	}
 }
 
@@ -211,7 +279,7 @@ func TestViewKeepsFooterOnLastLine(t *testing.T) {
 	lines := strings.Split(model.View().Content, "\n")
 	last := ansi.Strip(lines[len(lines)-1])
 
-	if !strings.Contains(last, "1/2/3 panels") || !strings.Contains(last, "? help") {
+	if !strings.Contains(last, "n nums") || !strings.Contains(last, "? help") {
 		t.Fatalf("last line should contain footer hints, got %q in view %q", last, model.View().Content)
 	}
 }
@@ -361,6 +429,95 @@ func TestDiffPaneSupportsHorizontalScrollWhenWrapIsOff(t *testing.T) {
 	model = next.(Model)
 	if got := model.viewport.XOffset(); got != 0 {
 		t.Fatalf("h should scroll diff viewport left, got x offset %d", got)
+	}
+}
+
+func TestLineNumbersRenderByDefault(t *testing.T) {
+	model := testModel(t)
+	model.setDiffContent("diff --git a/a.go b/a.go\n@@ -10,2 +20,2 @@ func main() {\n unchanged\n-old\n+new")
+
+	if !model.showLineNumbers {
+		t.Fatal("line numbers should be enabled by default")
+	}
+	view := ansi.Strip(model.renderDiffViewportContent())
+	for _, want := range []string{"   20 │  unchanged", "  -11 │ -old", "   21 │ +new"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("line number gutter missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestLineNumberToggleHidesGutter(t *testing.T) {
+	model := testModel(t)
+	model.setDiffContent("@@ -1,1 +1,1 @@\n unchanged")
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
+	model = next.(Model)
+
+	if model.showLineNumbers {
+		t.Fatal("n should disable line numbers on first press")
+	}
+	view := ansi.Strip(model.renderDiffViewportContent())
+	if strings.Contains(view, "1 │") {
+		t.Fatalf("line number gutter should be hidden: %q", view)
+	}
+	if model.toast != "line numbers off" {
+		t.Fatalf("toast = %q, want line numbers off", model.toast)
+	}
+}
+
+func TestLineNumberGutterKeepsWrappedContinuationAligned(t *testing.T) {
+	model := testModel(t)
+	model.width = 72
+	model.height = 20
+	model.setDiffContent("@@ -1,1 +1,1 @@\n+" + strings.Repeat("x", model.diffTextWidth(model.viewport.Width())) + "tail")
+
+	lines := strings.Split(ansi.Strip(model.renderDiffViewportContent()), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected wrapped numbered diff: %q", model.renderDiffViewportContent())
+	}
+	if !strings.Contains(lines[1], "    1 │ +") {
+		t.Fatalf("first wrapped line missing new line number gutter: %q", lines[1])
+	}
+	if strings.Contains(lines[2], "1 │") {
+		t.Fatalf("continuation line should not repeat line number: %q", lines[2])
+	}
+	if !strings.HasPrefix(lines[2], strings.Repeat(" ", model.diffGutterWidth())) {
+		t.Fatalf("continuation line should keep blank gutter: %q", lines[2])
+	}
+}
+
+func TestDiffAddsSpacerBeforeLaterHunksInSameFile(t *testing.T) {
+	model := testModel(t)
+	model.showLineNumbers = false
+	model.setDiffContent(strings.Join([]string{
+		"diff --git a/a.go b/a.go",
+		"@@ -1,1 +1,1 @@ func a()",
+		"-old",
+		"+new",
+		"@@ -20,1 +20,1 @@ func b()",
+		"-old",
+		"+new",
+		"diff --git a/b.go b/b.go",
+		"@@ -1,1 +1,1 @@ func c()",
+		"-old",
+		"+new",
+	}, "\n"))
+
+	viewLines := strings.Split(ansi.Strip(model.renderDiffViewportContent()), "\n")
+	trimmed := make([]string, 0, len(viewLines))
+	for _, line := range viewLines {
+		trimmed = append(trimmed, strings.TrimRight(line, " "))
+	}
+	view := strings.Join(trimmed, "\n")
+	if strings.Contains(view, "...") {
+		t.Fatalf("separator should not render literal ellipsis: %q", view)
+	}
+	if !strings.Contains(view, "@@ -1,1 +1,1 @@ func a()\n-old\n+new\n\n@@ -20,1 +20,1 @@ func b()") {
+		t.Fatalf("same-file hunk separator missing in %q", view)
+	}
+	if strings.Contains(view, "diff --git a/b.go b/b.go\n\n@@") {
+		t.Fatalf("first hunk in new file should not get separator: %q", view)
 	}
 }
 
@@ -541,6 +698,110 @@ func TestEnterOnFilePanelFocusesDiffPanel(t *testing.T) {
 	}
 }
 
+func TestEnterOnWorktreePanelFocusesFilePanelWhenFilesExist(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+
+	if got.focusedPane != paneFiles {
+		t.Fatalf("focusedPane = %v, want paneFiles", got.focusedPane)
+	}
+	if !strings.Contains(got.View().Content, "● [2]-") {
+		t.Fatalf("enter should focus files panel: %q", got.View().Content)
+	}
+}
+
+func TestEnterOnWorktreePanelStaysWhenNoFilesExist(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.changes = nil
+	model.worktrees[model.selectedWorktree].Changes = nil
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+
+	if got.focusedPane != paneWorktrees {
+		t.Fatalf("focusedPane = %v, want paneWorktrees", got.focusedPane)
+	}
+}
+
+func TestEditKeyOpensSelectedFileCommand(t *testing.T) {
+	model := testModel(t)
+	t.Setenv("EDITOR", "true")
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "e", Code: 'e'}))
+
+	if cmd == nil {
+		t.Fatal("e should return editor command")
+	}
+}
+
+func TestEditKeyShowsToastWhenNoFileSelected(t *testing.T) {
+	model := testModel(t)
+	model.changes = nil
+	model.worktrees[model.selectedWorktree].Changes = nil
+	model.refreshDiff()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "e", Code: 'e'}))
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("e without selected file should return toast command")
+	}
+	if got.toast != "no file selected" {
+		t.Fatalf("toast = %q, want no file selected", got.toast)
+	}
+}
+
+func TestEditorFailureShowsToast(t *testing.T) {
+	model := testModel(t)
+
+	next, cmd := model.Update(editorFinishedMsg{err: errors.New("boom")})
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("editor failure should return toast command")
+	}
+	if !strings.Contains(got.toast, "editor failed: boom") {
+		t.Fatalf("toast = %q, want editor failure", got.toast)
+	}
+}
+
+func TestEscMovesFocusBackWithoutQuitting(t *testing.T) {
+	model := testModel(t)
+
+	model.focusedPane = paneDiff
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = next.(Model)
+	if cmd != nil {
+		t.Fatalf("esc from diff returned command, want nil")
+	}
+	if model.focusedPane != paneFiles {
+		t.Fatalf("esc from diff focusedPane = %v, want paneFiles", model.focusedPane)
+	}
+
+	next, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = next.(Model)
+	if cmd != nil {
+		t.Fatalf("esc from files returned command, want nil")
+	}
+	if model.focusedPane != paneWorktrees {
+		t.Fatalf("esc from files focusedPane = %v, want paneWorktrees", model.focusedPane)
+	}
+
+	next, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = next.(Model)
+	if cmd != nil {
+		t.Fatalf("esc from worktrees returned command, want nil")
+	}
+	if model.focusedPane != paneWorktrees {
+		t.Fatalf("esc from worktrees focusedPane = %v, want paneWorktrees", model.focusedPane)
+	}
+}
+
 func TestMouseClickFocusesDiffPanel(t *testing.T) {
 	model := testModel(t)
 	leftWidth, _ := model.layoutWidths()
@@ -707,6 +968,45 @@ func TestFileListWindowsLargeChangeSets(t *testing.T) {
 	lastView := next.(Model).View().Content
 	if !strings.Contains(lastView, "file-t.go") || strings.Contains(lastView, "file-a.go") {
 		t.Fatalf("last view did not window around selected file: %q", lastView)
+	}
+}
+
+func TestDiffGoTopBottomKeepsDiffFocus(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneDiff
+	model.setDiffContent(strings.Join([]string{
+		"@@ -1,12 +1,12 @@",
+		" line-1",
+		" line-2",
+		" line-3",
+		" line-4",
+		" line-5",
+		" line-6",
+		" line-7",
+		" line-8",
+		" line-9",
+		" line-10",
+		" line-11",
+		" line-12",
+	}, "\n"))
+	model.viewport.SetHeight(4)
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
+	model = next.(Model)
+	if model.focusedPane != paneDiff {
+		t.Fatalf("G from diff focusedPane = %v, want paneDiff", model.focusedPane)
+	}
+	if model.viewport.YOffset() == 0 {
+		t.Fatal("G from diff should move viewport to bottom")
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	model = next.(Model)
+	if model.focusedPane != paneDiff {
+		t.Fatalf("g from diff focusedPane = %v, want paneDiff", model.focusedPane)
+	}
+	if model.viewport.YOffset() != 0 {
+		t.Fatalf("g from diff y offset = %d, want 0", model.viewport.YOffset())
 	}
 }
 

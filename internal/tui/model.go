@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -90,6 +92,7 @@ type Model struct {
 	selected          int
 	worktreeScrollX   int
 	fileScrollX       int
+	showLineNumbers   bool
 	revision          int
 	refreshGeneration int
 	width             int
@@ -125,6 +128,7 @@ func NewModel(cfg Config) Model {
 		viewport:         vp,
 		width:            initialDimension(cfg.Width, 100),
 		height:           initialDimension(cfg.Height, 30),
+		showLineNumbers:  true,
 		focusedPane:      paneFiles,
 	}
 	if m.themeName == "" {
@@ -170,6 +174,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toastExpiredMsg:
 		if msg.id == m.toastID {
 			m.toast = ""
+		}
+		return m, nil
+	case editorFinishedMsg:
+		if msg.err != nil {
+			return m, m.showToast(fmt.Sprintf("editor failed: %s", msg.err))
 		}
 		return m, nil
 	case diffLoadedMsg:
@@ -222,14 +231,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.ensureSelectedDiffCmd()
 		}
 		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "esc":
+			m.focusPreviousPane()
+			return m, nil
 		case "?":
 			m.showHelp = true
 		case "t":
 			m.openThemePicker()
 		case "w":
 			return m, m.toggleDiffWrap()
+		case "n":
+			return m, m.toggleLineNumbers()
+		case "e":
+			return m, m.openSelectedFileInEditor()
 		case "tab":
 			m.moveWorktree(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -237,6 +253,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveWorktree(-1)
 			return m, m.ensureSelectedDiffCmd()
 		case "enter":
+			if m.focusedPane == paneWorktrees && len(m.changes) > 0 {
+				m.focusedPane = paneFiles
+				return m, m.ensureSelectedDiffCmd()
+			}
 			if m.focusedPane == paneFiles {
 				m.focusedPane = paneDiff
 				return m, m.ensureSelectedDiffCmd()
@@ -262,21 +282,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveSelection(-1)
 			return m, m.ensureSelectedDiffCmd()
 		case "h", "left":
+			if m.focusedPane == paneDiff {
+				m.scrollDiffHorizontal(-1)
+				return m, nil
+			}
 			if m.scrollFocusedList(-1) {
 				return m, nil
 			}
 			break
 		case "l", "right":
+			if m.focusedPane == paneDiff {
+				m.scrollDiffHorizontal(1)
+				return m, nil
+			}
 			if m.scrollFocusedList(1) {
 				return m, nil
 			}
 			break
 		case "g", "home":
+			if m.focusedPane == paneDiff {
+				m.viewport.GotoTop()
+				return m, nil
+			}
 			m.focusedPane = paneFiles
 			m.selected = 0
 			m.refreshDiff()
 			return m, m.ensureSelectedDiffCmd()
 		case "G", "end":
+			if m.focusedPane == paneDiff {
+				m.viewport.GotoBottom()
+				return m, nil
+			}
 			if len(m.changes) > 0 {
 				m.focusedPane = paneFiles
 				m.selected = len(m.changes) - 1
@@ -319,15 +355,27 @@ func (m Model) View() tea.View {
 
 func (m Model) footerText() string {
 	segments := []string{
-		fmt.Sprintf("%s 1/2/3 panels", iconKey),
-		fmt.Sprintf("%s tab worktree", iconWorktree),
-		fmt.Sprintf("%s hjkl move", iconFile),
-		"w wrap",
-		fmt.Sprintf("%s t themes", iconTheme),
-		fmt.Sprintf("%s ? help", iconHelp),
-		fmt.Sprintf("%s q quit", iconQuit),
+		m.footerHint(iconKey, "1/2/3", "panels"),
+		m.footerHint(iconWorktree, "tab", "worktree"),
+		m.footerHint(iconFile, "hjkl", "move"),
+		m.footerHint("", "e", "edit"),
+		m.footerHint("", "w", "wrap"),
+		m.footerHint("", "n", "nums"),
+		m.footerHint(iconTheme, "t", "themes"),
+		m.footerHint(iconHelp, "?", "help"),
+		m.footerHint(iconQuit, "q", "quit"),
 	}
-	return strings.Join(segments, " │ ")
+	return strings.Join(segments, m.styles.Footer.Render(" │ "))
+}
+
+func (m Model) footerHint(icon, key, label string) string {
+	keyStyle := m.styles.Footer.Bold(true).Background(m.styles.FileSelected.GetBackground())
+	keyText := keyStyle.Render(key)
+	labelText := m.styles.Footer.Render(label)
+	if icon == "" {
+		return fmt.Sprintf("%s %s", keyText, labelText)
+	}
+	return fmt.Sprintf("%s %s %s", m.styles.Footer.Render(icon), keyText, labelText)
 }
 
 func (m Model) renderFooter() string {
@@ -405,6 +453,15 @@ func (m *Model) moveWorktree(delta int) {
 	m.selectWorktree(m.selectedWorktree)
 }
 
+func (m *Model) focusPreviousPane() {
+	switch m.focusedPane {
+	case paneDiff:
+		m.focusedPane = paneFiles
+	case paneFiles:
+		m.focusedPane = paneWorktrees
+	}
+}
+
 func (m *Model) toggleDiffWrap() tea.Cmd {
 	if m.viewport.SoftWrap {
 		m.viewport.SoftWrap = false
@@ -413,6 +470,56 @@ func (m *Model) toggleDiffWrap() tea.Cmd {
 	m.viewport.SetXOffset(0)
 	m.viewport.SoftWrap = true
 	return m.showToast("diff wrap on")
+}
+
+func (m *Model) toggleLineNumbers() tea.Cmd {
+	m.showLineNumbers = !m.showLineNumbers
+	m.viewport.SetXOffset(clamp(m.viewport.XOffset(), 0, m.maxDiffXOffset()))
+	if m.showLineNumbers {
+		return m.showToast("line numbers on")
+	}
+	return m.showToast("line numbers off")
+}
+
+func (m *Model) openSelectedFileInEditor() tea.Cmd {
+	selected := m.Selected()
+	if selected.Path == "" {
+		return m.showToast("no file selected")
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	worktreePath := m.SelectedWorktree().Path
+	if worktreePath == "" {
+		worktreePath = "."
+	}
+	cmd := exec.Command("sh", "-c", `${EDITOR:-vi} "$@"`, "editor", selected.Path)
+	cmd.Dir = worktreePath
+	cmd.Env = append(os.Environ(), "EDITOR="+editor)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
+	})
+}
+
+func (m *Model) scrollDiffHorizontal(delta int) {
+	if m.viewport.SoftWrap {
+		return
+	}
+	step := 6
+	m.viewport.SetXOffset(clamp(m.viewport.XOffset()+delta*step, 0, m.maxDiffXOffset()))
+}
+
+func (m Model) maxDiffXOffset() int {
+	return max(0, m.maxDiffLineWidth()-m.diffTextWidth(m.viewport.Width()))
+}
+
+func (m Model) maxDiffLineWidth() int {
+	width := 0
+	for _, line := range m.diffLines {
+		width = max(width, lipgloss.Width(line))
+	}
+	return width
 }
 
 func (m *Model) showToast(message string) tea.Cmd {
@@ -526,8 +633,9 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 			return false, nil
 		}
 		index := mouse.Y - y - 3
-		if index >= 0 && index < len(m.themeNames) {
-			m.themeCursor = index
+		offset := m.themePickerOffset()
+		if index >= 0 && index < m.themePickerVisibleRows() && offset+index < len(m.themeNames) {
+			m.themeCursor = offset + index
 			cmd := m.applyThemeCursor()
 			m.pickingTheme = false
 			return false, cmd
@@ -900,7 +1008,9 @@ func (m Model) renderHelp() string {
 		"tab / shift+tab: switch worktree",
 		"h/l or left/right: scroll focused list horizontally",
 		"j/k or up/down: move focused list",
+		"e: open selected file in $EDITOR",
 		"w: toggle diff wrap",
+		"n: toggle diff line numbers",
 		"auto-refresh: reload git worktree changes every 5s",
 		iconTheme + " t themes: open theme picker",
 		iconHelp + " ?: toggle this help",
@@ -911,14 +1021,37 @@ func (m Model) renderHelp() string {
 
 func (m Model) renderThemePicker() string {
 	lines := []string{m.styles.Title.Render(iconTheme + " Themes")}
-	for i, name := range m.themeNames {
-		line := name
-		if i == m.themeCursor {
-			line = m.styles.FileSelected.Width(28).Render(name)
+	offset := m.themePickerOffset()
+	end := min(len(m.themeNames), offset+m.themePickerVisibleRows())
+	for i, name := range m.themeNames[offset:end] {
+		index := offset + i
+		prefix := "  "
+		if index == m.themeCursor {
+			prefix = iconSelected + " "
+		}
+		line := prefix + name
+		if index == m.themeCursor {
+			line = m.styles.FileSelected.Width(28).Render(line)
 		}
 		lines = append(lines, line)
 	}
 	return m.styles.PanelFocused.Width(34).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) themePickerOffset() int {
+	visibleRows := m.themePickerVisibleRows()
+	if visibleRows <= 0 || len(m.themeNames) <= visibleRows || m.themeCursor < visibleRows {
+		return 0
+	}
+	return min(m.themeCursor-visibleRows+1, len(m.themeNames)-visibleRows)
+}
+
+func (m Model) themePickerVisibleRows() int {
+	if len(m.themeNames) == 0 {
+		return 0
+	}
+	available := max(1, m.bodyHeight()-4)
+	return min(len(m.themeNames), available)
 }
 
 func (m Model) renderToast(background string) string {
@@ -985,21 +1118,23 @@ func (m Model) renderDiffViewportContent() string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	textWidth := m.diffTextWidth(width)
 	if m.viewport.SoftWrap {
-		return m.renderWrappedDiffViewport(width, height)
+		return m.renderWrappedDiffViewport(width, textWidth, height)
 	}
-	return m.renderUnwrappedDiffViewport(width, height)
+	return m.renderUnwrappedDiffViewport(width, textWidth, height)
 }
 
-func (m Model) renderWrappedDiffViewport(width, height int) string {
+func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 	lines := make([]string, 0, height)
 	offset := m.viewport.YOffset()
 	seen := 0
-	for _, line := range m.diffLines {
-		style := m.diffLineStyle(line)
-		for _, segment := range wrapDisplaySegments(line, width) {
+	for _, line := range m.numberedDiffLines() {
+		style := m.diffLineStyle(line.text)
+		segments := wrapDisplaySegments(line.text, textWidth)
+		for segmentIndex, segment := range segments {
 			if seen >= offset {
-				lines = append(lines, m.renderDiffSegment(style, segment, width))
+				lines = append(lines, m.renderDiffSegment(style, m.lineNumberGutter(line, segmentIndex > 0), segment, width, textWidth))
 				if len(lines) == height {
 					return strings.Join(lines, "\n")
 				}
@@ -1007,26 +1142,32 @@ func (m Model) renderWrappedDiffViewport(width, height int) string {
 			seen++
 		}
 	}
-	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", width)), "\n")
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth)), "\n")
 }
 
-func (m Model) renderUnwrappedDiffViewport(width, height int) string {
+func (m Model) renderUnwrappedDiffViewport(width, textWidth, height int) string {
 	lines := make([]string, 0, height)
 	offset := m.viewport.YOffset()
 	xOffset := m.viewport.XOffset()
-	for i := offset; i < len(m.diffLines) && len(lines) < height; i++ {
-		line := m.diffLines[i]
-		segment := ansi.Cut(line, xOffset, xOffset+width)
-		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line), segment, width))
+	numbered := m.numberedDiffLines()
+	for i := offset; i < len(numbered) && len(lines) < height; i++ {
+		line := numbered[i]
+		segment := ansi.Cut(line.text, xOffset, xOffset+textWidth)
+		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth))
 	}
-	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", width)), "\n")
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth)), "\n")
 }
 
-func (m Model) renderDiffSegment(style lipgloss.Style, segment string, width int) string {
+func (m Model) renderDiffSegment(style lipgloss.Style, gutter, segment string, width, textWidth int) string {
+	if gutter != "" {
+		text := style.Inline(true).Width(textWidth).Render(segment)
+		return gutter + text
+	}
 	return style.Inline(true).Width(width).Render(segment)
 }
 
 func wrapDisplaySegments(line string, width int) []string {
+	width = max(1, width)
 	if line == "" {
 		return []string{""}
 	}
@@ -1036,6 +1177,131 @@ func wrapDisplaySegments(line string, width int) []string {
 		segments = append(segments, ansi.Cut(line, offset, offset+width))
 	}
 	return segments
+}
+
+func (m Model) diffTextWidth(width int) int {
+	return max(1, width-m.diffGutterWidth())
+}
+
+func (m Model) diffGutterWidth() int {
+	if !m.showLineNumbers {
+		return 0
+	}
+	return 8
+}
+
+type numberedDiffLine struct {
+	text string
+	old  int
+	new  int
+}
+
+func (m Model) numberedDiffLines() []numberedDiffLine {
+	lines := make([]numberedDiffLine, 0, len(m.diffLines))
+	oldLine, newLine := 0, 0
+	seenHunkInFile := false
+	for _, line := range m.diffLines {
+		if strings.HasPrefix(line, "diff --git") {
+			seenHunkInFile = false
+			lines = append(lines, numberedDiffLine{text: line})
+			continue
+		}
+		if oldStart, newStart, ok := parseDiffHunkHeader(line); ok {
+			if seenHunkInFile {
+				lines = append(lines, numberedDiffLine{text: ""})
+			}
+			oldLine = oldStart
+			newLine = newStart
+			seenHunkInFile = true
+			lines = append(lines, numberedDiffLine{text: line})
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			lines = append(lines, numberedDiffLine{text: line})
+		case strings.HasPrefix(line, "+"):
+			lines = append(lines, numberedDiffLine{text: line, new: newLine})
+			newLine++
+		case strings.HasPrefix(line, "-"):
+			lines = append(lines, numberedDiffLine{text: line, old: oldLine})
+			oldLine++
+		case oldLine > 0 || newLine > 0:
+			lines = append(lines, numberedDiffLine{text: line, old: oldLine, new: newLine})
+			oldLine++
+			newLine++
+		default:
+			lines = append(lines, numberedDiffLine{text: line})
+		}
+	}
+	return lines
+}
+
+func parseDiffHunkHeader(line string) (int, int, bool) {
+	if !strings.HasPrefix(line, "@@ -") {
+		return 0, 0, false
+	}
+	parts := strings.Fields(line)
+	if len(parts) < 3 {
+		return 0, 0, false
+	}
+	oldStart, ok := parseHunkStart(parts[1], '-')
+	if !ok {
+		return 0, 0, false
+	}
+	newStart, ok := parseHunkStart(parts[2], '+')
+	if !ok {
+		return 0, 0, false
+	}
+	return oldStart, newStart, true
+}
+
+func parseHunkStart(value string, prefix byte) (int, bool) {
+	if len(value) < 2 || value[0] != prefix {
+		return 0, false
+	}
+	value = value[1:]
+	if index := strings.IndexByte(value, ','); index >= 0 {
+		value = value[:index]
+	}
+	var parsed int
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		parsed = parsed*10 + int(r-'0')
+	}
+	if parsed <= 0 {
+		parsed = 1
+	}
+	return parsed, true
+}
+
+func (m Model) lineNumberGutter(line numberedDiffLine, continuation bool) string {
+	if !m.showLineNumbers {
+		return ""
+	}
+	style := m.styles.Muted.Background(m.styles.Diff.GetBackground())
+	if continuation {
+		return style.Inline(true).Width(m.diffGutterWidth()).Render("")
+	}
+	return style.Inline(true).Width(m.diffGutterWidth()).Render(fmt.Sprintf("%5s │ ", lineNumberLabel(line)))
+}
+
+func lineNumberLabel(line numberedDiffLine) string {
+	if line.new > 0 {
+		return fmt.Sprintf("%d", line.new)
+	}
+	if line.old > 0 {
+		return fmt.Sprintf("-%d", line.old)
+	}
+	return ""
+}
+
+func lineNumberText(value int) string {
+	if value <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", value)
 }
 
 func fillStyledLines(lines []string, height int, fill string) []string {
@@ -1201,6 +1467,10 @@ type autoRefreshMsg struct{}
 
 type toastExpiredMsg struct {
 	id int
+}
+
+type editorFinishedMsg struct {
+	err error
 }
 
 type diffLoadedMsg struct {
