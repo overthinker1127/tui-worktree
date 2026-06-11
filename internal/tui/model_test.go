@@ -46,6 +46,31 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 	}
 }
 
+func TestNewModelUsesConfiguredInitialSize(t *testing.T) {
+	tm, err := theme.Preset("tokyonight")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		Theme:  theme.NewStyles(tm),
+		Width:  132,
+		Height: 41,
+		Changes: []gitview.FileChange{
+			{Path: "README.md", Status: gitview.Modified},
+		},
+		Diff: "diff --git a/README.md b/README.md\n+hello\n-world",
+	})
+
+	if model.width != 132 || model.height != 41 {
+		t.Fatalf("initial size = %dx%d, want 132x41", model.width, model.height)
+	}
+	for i, line := range strings.Split(model.View().Content, "\n") {
+		if got := lipgloss.Width(line); got > model.width {
+			t.Fatalf("line %d width = %d, want <= %d: %q", i, got, model.width, ansi.Strip(line))
+		}
+	}
+}
+
 func TestModelMovesSelectionDown(t *testing.T) {
 	tm, err := theme.Preset("tokyonight")
 	if err != nil {
@@ -143,10 +168,13 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	model := testModel(t)
 
 	footer := model.footerText()
-	for _, want := range []string{"1/2/3 panels", "tab worktree", "j/k move", "auto 5s", "t themes", "? help", "q quit"} {
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "t themes", "? help", "q quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
+	}
+	if strings.Contains(footer, "auto 5s") {
+		t.Fatalf("footer should not show auto-refresh interval: %q", footer)
 	}
 	for _, want := range []string{iconWorktree, iconKey, iconFile, " │ "} {
 		if !strings.Contains(footer, want) {
@@ -172,6 +200,243 @@ func TestFooterAlignsToRightEdge(t *testing.T) {
 	}
 	if got := rightAlignText("abcdef", 3); got != "def" {
 		t.Fatalf("narrow footer = %q, want def", got)
+	}
+}
+
+func TestViewKeepsFooterOnLastLine(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 24
+
+	lines := strings.Split(model.View().Content, "\n")
+	last := ansi.Strip(lines[len(lines)-1])
+
+	if !strings.Contains(last, "1/2/3 panels") || !strings.Contains(last, "? help") {
+		t.Fatalf("last line should contain footer hints, got %q in view %q", last, model.View().Content)
+	}
+}
+
+func TestViewLinesFitTerminalWidth(t *testing.T) {
+	model := testModel(t)
+	model.width = 94
+	model.height = 38
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Branch: "main", Current: true}, Changes: model.changes},
+		{Worktree: gitview.Worktree{Branch: "fix/v1-persistent-theme-config"}, Changes: model.changes},
+	}
+	model.changes = []gitview.FileChange{
+		{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 1, Deletions: 1},
+		{Path: "internal/tui/model_test.go", Status: gitview.Modified, Additions: 13},
+	}
+	model.diffs = map[string]string{
+		model.diffKey(model.changes[0]): "diff --git a/internal/tui/model.go b/internal/tui/model.go\n@@ -830,7 +830,7 @@ func (m Model) layoutWidths() (int, int) {\n-\treturn max(4, m.height-1)\n+\treturn max(4, m.height-2)",
+	}
+	model.refreshDiff()
+
+	fillsWidth := false
+	for i, line := range strings.Split(model.View().Content, "\n") {
+		got := lipgloss.Width(line)
+		if got > model.width {
+			t.Fatalf("line %d width = %d, want <= %d: %q", i, got, model.width, ansi.Strip(line))
+		}
+		if got == model.width {
+			fillsWidth = true
+		}
+	}
+	if !fillsWidth {
+		t.Fatalf("view never filled terminal width %d: %q", model.width, model.View().Content)
+	}
+}
+
+func TestSelectedRowsRenderVisiblePointer(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Branch: "main", Current: true}, Changes: model.changes},
+		{Worktree: gitview.Worktree{Branch: "feature"}, Changes: model.changes},
+	}
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Added},
+	}
+	model.selectedWorktree = 1
+	model.selected = 1
+	model.refreshDiff()
+
+	view := ansi.Strip(model.View().Content)
+	for _, want := range []string{iconSelected + "   " + iconBranch + " feature", iconSelected + " " + iconAdded + " b.go"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("selected row missing visible pointer %q in %q", want, view)
+		}
+	}
+}
+
+func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
+	model := testModel(t)
+	model.width = 54
+	model.changes = []gitview.FileChange{{
+		Path:   "internal/some/really/long/path/that/needs/scrolling/model.go",
+		Status: gitview.Modified,
+	}}
+	model.diffs = map[string]string{}
+	model.focusedPane = paneFiles
+	model.refreshDiff()
+
+	initial := ansi.Strip(model.View().Content)
+	if !strings.Contains(initial, "internal/some") {
+		t.Fatalf("initial view should show start of long path: %q", initial)
+	}
+
+	for range 20 {
+		next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+		model = next.(Model)
+	}
+	scrolled := ansi.Strip(model.View().Content)
+	if !strings.Contains(scrolled, "▸ ly/long/path/that/") {
+		t.Fatalf("horizontal scroll did not move file row: %q", scrolled)
+	}
+	if model.fileScrollX != 20 {
+		t.Fatalf("fileScrollX = %d, want 20", model.fileScrollX)
+	}
+}
+
+func TestDiffWrapToggleDisablesSoftWrap(t *testing.T) {
+	model := testModel(t)
+
+	if !model.viewport.SoftWrap {
+		t.Fatal("diff wrap should be enabled by default")
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "w", Code: 'w'}))
+	got := next.(Model)
+
+	if got.viewport.SoftWrap {
+		t.Fatal("w should disable diff wrap on first press")
+	}
+	if got.toast != "diff wrap off" {
+		t.Fatalf("toast = %q, want diff wrap off", got.toast)
+	}
+	if !strings.Contains(got.View().Content, "diff wrap off") {
+		t.Fatalf("toast should render in view: %q", got.View().Content)
+	}
+}
+
+func TestToastExpires(t *testing.T) {
+	model := testModel(t)
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "w", Code: 'w'}))
+	model = next.(Model)
+	if model.toast == "" {
+		t.Fatal("expected toast after wrap toggle")
+	}
+
+	next, _ = model.Update(toastExpiredMsg{id: model.toastID})
+	model = next.(Model)
+	if model.toast != "" {
+		t.Fatalf("toast = %q, want empty after expiration", model.toast)
+	}
+}
+
+func TestDiffPaneSupportsHorizontalScrollWhenWrapIsOff(t *testing.T) {
+	model := testModel(t)
+	model.width = 72
+	model.height = 20
+	model.changes = []gitview.FileChange{{Path: "long.go", Status: gitview.Modified}}
+	model.diffs = map[string]string{
+		model.diffKey(model.changes[0]): "diff --git a/long.go b/long.go\n+const value = \"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\"",
+	}
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "3", Code: '3'}))
+	model = next.(Model)
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "w", Code: 'w'}))
+	model = next.(Model)
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+	model = next.(Model)
+
+	if got := model.viewport.XOffset(); got == 0 {
+		t.Fatal("l should scroll diff viewport right when wrap is off")
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
+	model = next.(Model)
+	if got := model.viewport.XOffset(); got != 0 {
+		t.Fatalf("h should scroll diff viewport left, got x offset %d", got)
+	}
+}
+
+func TestDiffPanelFillsPaddingRowsWithDiffBackground(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 24
+	_, rightWidth := model.layoutWidths()
+	diff := model.renderDiff(rightWidth, model.bodyHeight())
+	lines := strings.Split(diff, "\n")
+	if len(lines) < 10 {
+		t.Fatalf("diff panel rendered too few lines: %q", diff)
+	}
+
+	emptyRow := lines[len(lines)-2]
+	if !strings.Contains(ansi.Strip(emptyRow), "│") {
+		t.Fatalf("expected panel body row, got %q", emptyRow)
+	}
+	if !containsEscape(emptyRow, "48;2;") {
+		t.Fatalf("empty diff row should keep diff background: %q", emptyRow)
+	}
+}
+
+func TestDiffViewportFillsEmptyRowsWithDiffBackground(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 24
+	model.refreshDiff()
+
+	lines := strings.Split(model.renderDiffViewportContent(), "\n")
+	if len(lines) < 10 {
+		t.Fatalf("viewport rendered too few lines: %q", model.renderDiffViewportContent())
+	}
+
+	emptyLine := lines[len(lines)-1]
+	if !containsEscape(emptyLine, "48;2;") {
+		t.Fatalf("empty viewport line should keep diff background: %q", emptyLine)
+	}
+}
+
+func TestDiffViewportFillsShortRowsBeforeReset(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 24
+	model.setDiffContent("short")
+
+	line := strings.Split(model.renderDiffViewportContent(), "\n")[0]
+	if strings.Contains(line, "short\x1b[m ") {
+		t.Fatalf("short diff row resets before padding spaces: %q", line)
+	}
+	if !containsEscape(line, "48;2;") {
+		t.Fatalf("short diff row should keep diff background: %q", line)
+	}
+}
+
+func TestDiffWrappedTailFillsToViewportWidthWithLineBackground(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 24
+	model.refreshDiff()
+	model.setDiffContent("-" + strings.Repeat("x", model.viewport.Width()) + "}}")
+
+	lines := strings.Split(model.renderDiffViewportContent(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped diff tail line: %q", model.renderDiffViewportContent())
+	}
+	filled := lines[1]
+
+	if got := lipgloss.Width(filled); got != model.viewport.Width() {
+		t.Fatalf("filled width = %d, want %d: %q", got, model.viewport.Width(), filled)
+	}
+	if !strings.Contains(filled, styleBackgroundToken(model.styles.DiffDeletion)) {
+		t.Fatalf("wrapped deletion tail should keep deletion background: %q", filled)
+	}
+	if strings.Contains(filled, "\x1b[m ") {
+		t.Fatalf("wrapped deletion tail resets before fill spaces: %q", filled)
 	}
 }
 
@@ -258,6 +523,21 @@ func TestNumberKeysFocusPanels(t *testing.T) {
 		if !strings.Contains(model.View().Content, tc.want) {
 			t.Fatalf("key %s should focus panel %q: %q", tc.key, tc.want, model.View().Content)
 		}
+	}
+}
+
+func TestEnterOnFilePanelFocusesDiffPanel(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneFiles
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+
+	if got.focusedPane != paneDiff {
+		t.Fatalf("focusedPane = %v, want paneDiff", got.focusedPane)
+	}
+	if !strings.Contains(got.View().Content, "● [3]-") {
+		t.Fatalf("enter should focus diff panel: %q", got.View().Content)
 	}
 }
 
@@ -537,4 +817,31 @@ func testModel(t *testing.T) Model {
 		Changes:   []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
 		Diffs:     map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},
 	})
+}
+
+func containsEscape(value string, want string) bool {
+	return countEscape(value, want) > 0
+}
+
+func styleBackgroundToken(style lipgloss.Style) string {
+	rendered := style.Render(" ")
+	start := strings.Index(rendered, "48;2;")
+	if start < 0 {
+		return ""
+	}
+	end := strings.IndexByte(rendered[start:], 'm')
+	if end < 0 {
+		return rendered[start:]
+	}
+	return rendered[start : start+end]
+}
+
+func countEscape(value string, want string) int {
+	count := 0
+	for i := 0; i+len(want) <= len(value); i++ {
+		if value[i:i+len(want)] == want {
+			count++
+		}
+	}
+	return count
 }
