@@ -228,11 +228,7 @@ func (m Model) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
 	header := m.styles.Title.Render("Files changed")
-	footerText := fmt.Sprintf("1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconRefresh, iconTheme, iconHelp, iconQuit)
-	if m.status != "" {
-		footerText = m.status + "  " + footerText
-	}
-	footer := m.styles.Footer.Render(footerText)
+	footer := m.styles.Footer.Render(m.footerText())
 	if m.err != nil {
 		footer = m.styles.Error.Render(m.err.Error())
 	}
@@ -248,6 +244,14 @@ func (m Model) View() tea.View {
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	return view
+}
+
+func (m Model) footerText() string {
+	text := fmt.Sprintf("1-9  tab  j/k  %s r  %s t  %s ?  %s q", iconRefresh, iconTheme, iconHelp, iconQuit)
+	if m.status != "" {
+		return m.status + "  " + text
+	}
+	return text
 }
 
 func (m Model) Selected() gitview.FileChange {
