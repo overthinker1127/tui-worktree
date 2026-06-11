@@ -40,9 +40,9 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 	if !strings.Contains(view, "● [2]-") {
 		t.Fatalf("View() should focus files panel by default: %q", view)
 	}
-	for _, want := range []string{"󰈙", ""} {
+	for _, want := range []string{iconFile, iconModified} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("View() missing Nerd Font symbol %q in %q", want, view)
+			t.Fatalf("View() missing icon %q in %q", want, view)
 		}
 	}
 }
@@ -99,7 +99,7 @@ func TestQuestionMarkTogglesHelp(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	view := next.(Model).View().Content
 
-	for _, want := range []string{"Help", "1/2/3: focus panels", "auto-refresh", " t themes", "a.go"} {
+	for _, want := range []string{"Help", "1/2/3: focus panels", "auto-refresh", iconTheme + " t themes", "a.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q in %q", want, view)
 		}
@@ -153,6 +153,52 @@ func TestThemePickerRendersAsOverlay(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("theme overlay view missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestThemePickerRowsUsePanelColors(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		ThemeName:  "solarized-light",
+		Theme:      theme.NewStyles(tm),
+		ThemeNames: []string{"solarized-light", "ayu"},
+	})
+	model.openThemePicker()
+
+	row := findRenderedLine(model.renderThemePicker(), "  ayu")
+	if row == "" {
+		t.Fatalf("theme picker missing unselected row: %q", model.renderThemePicker())
+	}
+	for _, token := range []string{styleForegroundToken(model.styles.Diff), styleBackgroundToken(model.styles.Diff)} {
+		if token == "" || !strings.Contains(row, token) {
+			t.Fatalf("theme picker row should use panel colors token %q in %q", token, row)
+		}
+	}
+}
+
+func TestOverlayUsesPanelBorderColor(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		ThemeName:  "solarized-light",
+		Theme:      theme.NewStyles(tm),
+		ThemeNames: []string{"solarized-light", "ayu"},
+	})
+	model.openThemePicker()
+	picker := model.renderThemePicker()
+	panelBorder := styleForegroundToken(model.styles.Panel)
+	focusedBorder := styleForegroundToken(model.styles.PanelFocused)
+
+	if panelBorder == "" || !strings.Contains(picker, panelBorder) {
+		t.Fatalf("theme picker should use panel border token %q in %q", panelBorder, picker)
+	}
+	if focusedBorder != "" && strings.Contains(picker, focusedBorder) {
+		t.Fatalf("theme picker should not use focused border token %q in %q", focusedBorder, picker)
 	}
 }
 
@@ -221,7 +267,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	if strings.Contains(footer, "auto 5s") {
 		t.Fatalf("footer should not show auto-refresh interval: %q", footer)
 	}
-	for _, want := range []string{iconWorktree, iconKey, iconFile, " │ "} {
+	for _, want := range []string{iconWorktree, iconKey, iconFile, iconEdit, iconWrap, iconNumbers, " │ "} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
@@ -233,21 +279,100 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	}
 }
 
-func TestFooterKeysUseBadgeBackground(t *testing.T) {
-	model := testModel(t)
+func TestFooterKeysUseFooterBackgroundOnly(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{Theme: theme.NewStyles(tm)})
 
 	hint := model.footerHint("", "w", "wrap")
-	keyBackground := styleBackgroundToken(model.styles.FileSelected)
+	selectedBackground := styleBackgroundToken(model.styles.FileSelected)
 	footerBackground := styleBackgroundToken(model.styles.Footer)
 
-	if keyBackground == "" || !strings.Contains(hint, keyBackground) {
-		t.Fatalf("footer key should use badge background %q in %q", keyBackground, hint)
-	}
 	if footerBackground == "" || !strings.Contains(hint, footerBackground) {
 		t.Fatalf("footer label should use footer background %q in %q", footerBackground, hint)
 	}
-	if strings.Count(hint, keyBackground) != 1 {
-		t.Fatalf("footer key background should only be applied to key: %q", hint)
+	if selectedBackground != "" && strings.Contains(hint, selectedBackground) {
+		t.Fatalf("footer key should not use selected badge background %q in %q", selectedBackground, hint)
+	}
+	if !strings.Contains(hint, "\x1b[1;") {
+		t.Fatalf("footer key should stay bold: %q", hint)
+	}
+}
+
+func TestFooterHintSpacesUseFooterBackground(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{Theme: theme.NewStyles(tm)})
+	hint := model.footerHint(iconKey, "1/2/3", "panels")
+	background := styleBackgroundToken(model.styles.Footer)
+
+	if background == "" {
+		t.Fatal("footer background token should not be empty")
+	}
+	if got := strings.Count(hint, background); got < 5 {
+		t.Fatalf("footer hint spaces should use footer background, got %d background spans in %q", got, hint)
+	}
+}
+
+func TestPanelTitlePaddingUsesPanelBackground(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{Theme: theme.NewStyles(tm)})
+	top := model.renderPanelTop(model.styles.PanelFocused, true, "[3]-"+iconFile+" Diff", 40)
+	background := styleBackgroundToken(model.styles.PanelFocused)
+
+	if background == "" {
+		t.Fatal("panel background token should not be empty")
+	}
+	if got := strings.Count(top, background); got < 5 {
+		t.Fatalf("panel title padding should use panel background, got %d background spans in %q", got, top)
+	}
+}
+
+func TestSelectedListRowStripsNestedAnsiStyles(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	styles := theme.NewStyles(tm)
+	content := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 2, Deletions: 1})
+	row := renderScrollableListRow(styles.FileSelected, iconSelected+" ", content, 0, 60, true)
+
+	for _, token := range []string{
+		styleForegroundToken(styles.Muted),
+		styleForegroundToken(styles.Added),
+		styleForegroundToken(styles.Deleted),
+	} {
+		if token != "" && strings.Contains(row, token) {
+			t.Fatalf("selected row should not contain nested foreground token %q in %q", token, row)
+		}
+	}
+}
+
+func TestListLineSpacesUsePanelBackground(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	styles := theme.NewStyles(tm)
+	background := styleBackgroundToken(styles.Panel)
+	fileLine := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 6, Deletions: 2})
+	worktreeLine := renderWorktreeLine(styles, 0, WorktreeState{Worktree: gitview.Worktree{Branch: "main", Current: true}})
+
+	if background == "" {
+		t.Fatal("panel background token should not be empty")
+	}
+	if got := strings.Count(fileLine, background); got < 6 {
+		t.Fatalf("file line spaces should use panel background, got %d in %q", got, fileLine)
+	}
+	if got := strings.Count(worktreeLine, background); got < 5 {
+		t.Fatalf("worktree line spaces should use panel background, got %d in %q", got, worktreeLine)
 	}
 }
 
@@ -268,6 +393,23 @@ func TestFooterAlignsToRightEdge(t *testing.T) {
 	}
 	if got := rightAlignText("abcdef", 3); got != "def" {
 		t.Fatalf("narrow footer = %q, want def", got)
+	}
+}
+
+func TestRenderedFooterLeadingPaddingUsesFooterBackground(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{Theme: theme.NewStyles(tm), Width: 120})
+	footer := model.renderFooter()
+	background := styleBackgroundToken(model.styles.Footer)
+
+	if background == "" {
+		t.Fatal("footer background token should not be empty")
+	}
+	if !strings.HasPrefix(footer, "\x1b[") || !strings.Contains(footer[:min(len(footer), 64)], background) {
+		t.Fatalf("footer leading padding should use footer background %q in %q", background, footer)
 	}
 }
 
@@ -634,6 +776,17 @@ func TestWorktreeLineOmitsShortcutAndChangeCount(t *testing.T) {
 	}
 	if !strings.Contains(plain, iconBranch+" feature") {
 		t.Fatalf("worktree line missing branch label: %q", plain)
+	}
+}
+
+func TestProtectedWorktreeLineShowsLock(t *testing.T) {
+	model := testModel(t)
+	line := renderWorktreeLine(model.styles, 0, WorktreeState{
+		Worktree: gitview.Worktree{Branch: "main", Protected: true},
+	})
+
+	if !strings.Contains(ansi.Strip(line), iconProtected+" "+iconBranch+" main") {
+		t.Fatalf("protected worktree line should show lock: %q", line)
 	}
 }
 
@@ -1125,7 +1278,16 @@ func containsEscape(value string, want string) bool {
 
 func styleBackgroundToken(style lipgloss.Style) string {
 	rendered := style.Render(" ")
-	start := strings.Index(rendered, "48;2;")
+	return styleANSIToken(rendered, "48;2;")
+}
+
+func styleForegroundToken(style lipgloss.Style) string {
+	rendered := style.Render(" ")
+	return styleANSIToken(rendered, "38;2;")
+}
+
+func styleANSIToken(rendered, prefix string) string {
+	start := strings.Index(rendered, prefix)
 	if start < 0 {
 		return ""
 	}
@@ -1134,6 +1296,15 @@ func styleBackgroundToken(style lipgloss.Style) string {
 		return rendered[start:]
 	}
 	return rendered[start : start+end]
+}
+
+func findRenderedLine(rendered, plainSubstring string) string {
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(ansi.Strip(line), plainSubstring) {
+			return line
+		}
+	}
+	return ""
 }
 
 func countEscape(value string, want string) int {

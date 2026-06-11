@@ -63,6 +63,10 @@ const (
 	iconHelp      = "󰋖"
 	iconQuit      = "󰩈"
 	iconKey       = "󰌌"
+	iconEdit      = ""
+	iconWrap      = "󰖶"
+	iconNumbers   = "󰎠"
+	iconProtected = ""
 	iconStatus    = "󰎟"
 	iconSelected  = "▸"
 )
@@ -358,9 +362,9 @@ func (m Model) footerText() string {
 		m.footerHint(iconKey, "1/2/3", "panels"),
 		m.footerHint(iconWorktree, "tab", "worktree"),
 		m.footerHint(iconFile, "hjkl", "move"),
-		m.footerHint("", "e", "edit"),
-		m.footerHint("", "w", "wrap"),
-		m.footerHint("", "n", "nums"),
+		m.footerHint(iconEdit, "e", "edit"),
+		m.footerHint(iconWrap, "w", "wrap"),
+		m.footerHint(iconNumbers, "n", "nums"),
 		m.footerHint(iconTheme, "t", "themes"),
 		m.footerHint(iconHelp, "?", "help"),
 		m.footerHint(iconQuit, "q", "quit"),
@@ -369,13 +373,14 @@ func (m Model) footerText() string {
 }
 
 func (m Model) footerHint(icon, key, label string) string {
-	keyStyle := m.styles.Footer.Bold(true).Background(m.styles.FileSelected.GetBackground())
+	keyStyle := m.styles.Footer.Bold(true)
 	keyText := keyStyle.Render(key)
+	space := m.styles.Footer.Render(" ")
 	labelText := m.styles.Footer.Render(label)
 	if icon == "" {
-		return fmt.Sprintf("%s %s", keyText, labelText)
+		return keyText + space + labelText
 	}
-	return fmt.Sprintf("%s %s %s", m.styles.Footer.Render(icon), keyText, labelText)
+	return m.styles.Footer.Render(icon) + space + keyText + space + labelText
 }
 
 func (m Model) renderFooter() string {
@@ -389,7 +394,11 @@ func (m Model) renderFooter() string {
 	if width <= 0 {
 		return style.Render(text)
 	}
-	return style.Width(width).Render(rightAlignText(text, width))
+	textWidth := lipgloss.Width(text)
+	if textWidth >= width {
+		return ansi.Cut(text, textWidth-width, textWidth)
+	}
+	return style.Render(strings.Repeat(" ", width-textWidth)) + text
 }
 
 func rightAlignText(text string, width int) string {
@@ -803,9 +812,9 @@ func (m Model) renderWorktrees(width, height int) string {
 		index := offset + i
 		line := renderWorktreeLine(m.styles, index, worktree)
 		if index == m.selectedWorktree {
-			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.worktreeScrollX, contentWidth)
+			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.worktreeScrollX, contentWidth, true)
 		} else {
-			line = renderScrollableListRow(m.styles.FileItem, "  ", line, m.worktreeScrollX, contentWidth)
+			line = renderScrollableListRow(m.listRowStyle(m.styles.FileItem), m.listFill("  "), line, m.worktreeScrollX, contentWidth, false)
 		}
 		lines = append(lines, line)
 	}
@@ -852,9 +861,9 @@ func (m Model) renderFiles(width, height int) string {
 		index := offset + i
 		line := renderFileLine(m.styles, change)
 		if index == m.selected {
-			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.fileScrollX, contentWidth)
+			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.fileScrollX, contentWidth, true)
 		} else {
-			line = renderScrollableListRow(m.styles.FileItem, "  ", line, m.fileScrollX, contentWidth)
+			line = renderScrollableListRow(m.listRowStyle(m.styles.FileItem), m.listFill("  "), line, m.fileScrollX, contentWidth, false)
 		}
 		lines = append(lines, line)
 	}
@@ -946,7 +955,8 @@ func (m Model) renderPanelTop(style lipgloss.Style, focused bool, title string, 
 		}
 		label = m.panelTitleStyle(style, focused).Render(ansi.Truncate(prefix+title, max(1, innerWidth-2), ""))
 	}
-	titleSegment := " " + label + " "
+	titlePad := m.panelFill(style, 1)
+	titleSegment := titlePad + label + titlePad
 	fillWidth := max(0, innerWidth-lipgloss.Width(titleSegment))
 	return borderStyle.Render(border.TopLeft) +
 		titleSegment +
@@ -1001,6 +1011,14 @@ func (m Model) panelStyle(focused bool) lipgloss.Style {
 	return m.styles.Panel
 }
 
+func (m Model) listRowStyle(style lipgloss.Style) lipgloss.Style {
+	return style.Background(m.styles.Panel.GetBackground())
+}
+
+func (m Model) listFill(text string) string {
+	return listFill(m.styles, text)
+}
+
 func (m Model) renderHelp() string {
 	lines := []string{
 		m.styles.Title.Render(iconHelp + " Help"),
@@ -1016,11 +1034,11 @@ func (m Model) renderHelp() string {
 		iconHelp + " ?: toggle this help",
 		iconQuit + " q/esc: quit or close overlay",
 	}
-	return m.styles.PanelFocused.Width(min(m.width-2, 72)).Render(strings.Join(lines, "\n"))
+	return m.overlayPanelStyle().Width(min(m.width-2, 72)).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderThemePicker() string {
-	lines := []string{m.styles.Title.Render(iconTheme + " Themes")}
+	lines := []string{m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(28).Render(iconTheme + " Themes")}
 	offset := m.themePickerOffset()
 	end := min(len(m.themeNames), offset+m.themePickerVisibleRows())
 	for i, name := range m.themeNames[offset:end] {
@@ -1032,10 +1050,16 @@ func (m Model) renderThemePicker() string {
 		line := prefix + name
 		if index == m.themeCursor {
 			line = m.styles.FileSelected.Width(28).Render(line)
+		} else {
+			line = m.styles.Diff.Width(28).Render(line)
 		}
 		lines = append(lines, line)
 	}
-	return m.styles.PanelFocused.Width(34).Render(strings.Join(lines, "\n"))
+	return m.overlayPanelStyle().Width(34).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) overlayPanelStyle() lipgloss.Style {
+	return m.styles.Panel
 }
 
 func (m Model) themePickerOffset() int {
@@ -1368,7 +1392,22 @@ func renderWorktreeLine(styles theme.Styles, _ int, state WorktreeState) string 
 	if state.Error != nil {
 		marker = "!"
 	}
-	return fmt.Sprintf("%s %s %s", styles.Muted.Render(marker), styles.Muted.Render(iconBranch), name)
+	if worktree.Protected {
+		marker = iconProtected
+	}
+	return listStyle(styles, styles.Muted).Render(marker) +
+		listFill(styles, " ") +
+		listStyle(styles, styles.Muted).Render(iconBranch) +
+		listFill(styles, " ") +
+		listStyle(styles, styles.FileItem).Render(name)
+}
+
+func listStyle(styles theme.Styles, style lipgloss.Style) lipgloss.Style {
+	return style.Background(styles.Panel.GetBackground())
+}
+
+func listFill(styles theme.Styles, text string) string {
+	return lipgloss.NewStyle().Background(styles.Panel.GetBackground()).Render(text)
 }
 
 func panelInnerWidth(width int) int {
@@ -1389,11 +1428,14 @@ func fillLines(lines []string, height int) []string {
 	return lines
 }
 
-func renderScrollableListRow(style lipgloss.Style, prefix, content string, offset, width int) string {
+func renderScrollableListRow(style lipgloss.Style, prefix, content string, offset, width int, stripNestedANSI bool) string {
 	prefixWidth := lipgloss.Width(prefix)
 	contentWidth := max(1, width-prefixWidth)
 	offset = max(0, offset)
 	content = ansi.Cut(content, offset, offset+contentWidth)
+	if stripNestedANSI {
+		content = ansi.Strip(content)
+	}
 	return style.Width(width).Render(prefix + content)
 }
 
@@ -1401,11 +1443,20 @@ func renderFileLine(styles theme.Styles, change gitview.FileChange) string {
 	status := statusIcon(change.Status)
 	counts := ""
 	if change.Binary {
-		counts = styles.Muted.Render(" " + iconBinary + " binary")
+		counts = listFill(styles, " ") +
+			listStyle(styles, styles.Muted).Render(iconBinary) +
+			listFill(styles, " ") +
+			listStyle(styles, styles.Muted).Render("binary")
 	} else if change.Additions != 0 || change.Deletions != 0 {
-		counts = fmt.Sprintf(" %s %s", styles.Added.Render(fmt.Sprintf("+%d", change.Additions)), styles.Deleted.Render(fmt.Sprintf("-%d", change.Deletions)))
+		counts = listFill(styles, " ") +
+			listStyle(styles, styles.Added).Render(fmt.Sprintf("+%d", change.Additions)) +
+			listFill(styles, " ") +
+			listStyle(styles, styles.Deleted).Render(fmt.Sprintf("-%d", change.Deletions))
 	}
-	return fmt.Sprintf("%s %s%s", styles.Muted.Render(status), change.Path, counts)
+	return listStyle(styles, styles.Muted).Render(status) +
+		listFill(styles, " ") +
+		listStyle(styles, styles.FileItem).Render(change.Path) +
+		counts
 }
 
 func statusIcon(status gitview.ChangeStatus) string {
