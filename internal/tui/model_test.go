@@ -27,7 +27,10 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 
 	view := model.View().Content
 
-	for _, want := range []string{"Files changed", "[1]-", "[2]-", "[3]-", "README.md", "+4", "-2", "diff --git"} {
+	if strings.Contains(view, "Files changed") {
+		t.Fatalf("View() should not render Files changed title: %q", view)
+	}
+	for _, want := range []string{"[1]-", "[2]-", "[3]-", "README.md", "+4", "-2", "diff --git"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q in %q", want, view)
 		}
@@ -144,6 +147,51 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
 	}
+	for _, want := range []string{iconWorktree, iconKey, iconFile, iconRefresh, " │ "} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
+		}
+	}
+}
+
+func TestFooterAlignsToRightEdge(t *testing.T) {
+	model := testModel(t)
+	model.width = 120
+
+	line := rightAlignText(model.footerText(), model.width)
+
+	if got := lipgloss.Width(line); got != model.width {
+		t.Fatalf("right aligned footer width = %d, want %d", got, model.width)
+	}
+	if !strings.HasSuffix(line, model.footerText()) {
+		t.Fatalf("footer should be right aligned: %q", line)
+	}
+	if !strings.HasPrefix(line, " ") {
+		t.Fatalf("footer should have leading fill before text: %q", line)
+	}
+	if got := rightAlignText("abcdef", 3); got != "def" {
+		t.Fatalf("narrow footer = %q, want def", got)
+	}
+}
+
+func TestFooterRendersOnBottomLine(t *testing.T) {
+	model := testModel(t)
+	model.width = 120
+	model.height = 18
+
+	lines := strings.Split(model.View().Content, "\n")
+	if len(lines) == 0 {
+		t.Fatal("view rendered no lines")
+	}
+	bottom := lines[len(lines)-1]
+	for strings.TrimSpace(bottom) == "" && len(lines) > 1 {
+		lines = lines[:len(lines)-1]
+		bottom = lines[len(lines)-1]
+	}
+
+	if !strings.Contains(bottom, "q quit") {
+		t.Fatalf("bottom line should contain footer: %q", bottom)
+	}
 }
 
 func TestViewShowsWorktreeSidebar(t *testing.T) {
@@ -241,7 +289,7 @@ func TestSidebarPanelsFillBodyHeight(t *testing.T) {
 	model.width = 100
 	model.height = 30
 	leftWidth, _ := model.layoutWidths()
-	contentHeight := max(4, model.height-4)
+	contentHeight := model.bodyHeight()
 	worktrees := model.renderWorktrees(leftWidth, model.worktreePaneHeight(contentHeight))
 	files := model.renderFiles(leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)))
 	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
@@ -303,11 +351,39 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	}
 	model.refreshDiff()
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 8}))
 	got := next.(Model).Selected()
 
 	if got.Path != "b.go" {
 		t.Fatalf("Selected() = %q, want b.go", got.Path)
+	}
+}
+
+func TestMouseClickFooterIsIgnored(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Added},
+	}
+	model.refreshDiff()
+
+	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: model.bodyHeight()}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatalf("footer click returned command: %#v", cmd)
+	}
+	if got.focusedPane != model.focusedPane {
+		t.Fatalf("focused pane changed from %v to %v", model.focusedPane, got.focusedPane)
+	}
+	if got.Selected().Path != "a.go" {
+		t.Fatalf("footer click selected %q, want a.go", got.Selected().Path)
+	}
+
+	next, _ = model.Update(tea.MouseClickMsg(tea.Mouse{X: model.width - 1, Y: model.bodyHeight()}))
+	got = next.(Model)
+	if got.focusedPane != model.focusedPane {
+		t.Fatalf("right footer click changed focus from %v to %v", model.focusedPane, got.focusedPane)
 	}
 }
 
@@ -323,7 +399,7 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 	}
 	model.refreshDiff()
 
-	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
+	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 8}))
 	if cmd == nil {
 		t.Fatal("mouse selection did not request lazy diff load")
 	}
