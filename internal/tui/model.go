@@ -84,6 +84,19 @@ const (
 	paneDiff
 )
 
+type toastKind int
+
+const (
+	toastInfo toastKind = iota
+	toastError
+	toastSuccess
+)
+
+type toastState struct {
+	Message string
+	Kind    toastKind
+}
+
 type Model struct {
 	styles            theme.Styles
 	context           context.Context
@@ -104,7 +117,7 @@ type Model struct {
 	width             int
 	height            int
 	err               error
-	toast             string
+	toast             toastState
 	toastID           int
 	pickingTheme      bool
 	confirmDelete     bool
@@ -181,21 +194,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.ensureSelectedDiffCmd()
 	case toastExpiredMsg:
 		if msg.id == m.toastID {
-			m.toast = ""
+			m.toast = toastState{}
 		}
 		return m, nil
 	case editorFinishedMsg:
 		if msg.err != nil {
-			return m, m.showToast(fmt.Sprintf("editor failed: %s", msg.err))
+			return m, m.showErrorToast(fmt.Sprintf("editor failed: %s", msg.err))
 		}
 		return m, nil
 	case deleteWorktreeFinishedMsg:
 		m.confirmDelete = false
 		if msg.err != nil {
-			return m, m.showToast(fmt.Sprintf("delete failed: %s", msg.err))
+			return m, m.showErrorToast(fmt.Sprintf("delete failed: %s", msg.err))
 		}
 		m.removeWorktree(msg.worktree.Path)
-		cmds := []tea.Cmd{m.showToast(fmt.Sprintf("deleted %s", worktreeLabel(msg.worktree)))}
+		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("deleted %s", worktreeLabel(msg.worktree)))}
 		if m.reload != nil {
 			m.refreshGeneration++
 			cmds = append(cmds, m.reloadCmd(m.refreshGeneration, m.SelectedWorktree().Path))
@@ -559,8 +572,20 @@ func (m Model) maxDiffLineWidth() int {
 }
 
 func (m *Model) showToast(message string) tea.Cmd {
+	return m.showTypedToast(toastInfo, message)
+}
+
+func (m *Model) showErrorToast(message string) tea.Cmd {
+	return m.showTypedToast(toastError, message)
+}
+
+func (m *Model) showSuccessToast(message string) tea.Cmd {
+	return m.showTypedToast(toastSuccess, message)
+}
+
+func (m *Model) showTypedToast(kind toastKind, message string) tea.Cmd {
 	m.toastID++
-	m.toast = message
+	m.toast = toastState{Message: message, Kind: kind}
 	id := m.toastID
 	return tea.Tick(toastDuration, func(time.Time) tea.Msg {
 		return toastExpiredMsg{id: id}
@@ -621,10 +646,10 @@ func (m *Model) openThemePicker() {
 func (m *Model) openDeleteConfirm() tea.Cmd {
 	worktree := m.SelectedWorktree()
 	if worktree.Path == "" {
-		return m.showToast("no worktree selected")
+		return m.showErrorToast("no worktree selected")
 	}
 	if worktree.Protected || gitview.IsProtectedBranch(worktree.Branch) {
-		return m.showToast(fmt.Sprintf("protected branch %s cannot be deleted", worktreeLabel(worktree)))
+		return m.showErrorToast(fmt.Sprintf("protected branch %s cannot be deleted", worktreeLabel(worktree)))
 	}
 	m.confirmDelete = true
 	m.focusedPane = paneWorktrees
@@ -686,14 +711,14 @@ func (m *Model) applyThemeCursor() tea.Cmd {
 	name := m.themeNames[m.themeCursor]
 	preset, err := theme.Preset(name)
 	if err != nil {
-		return m.showToast(err.Error())
+		return m.showErrorToast(err.Error())
 	}
 	m.themeName = name
 	m.styles = theme.NewStyles(preset)
 	var cmd tea.Cmd
 	if m.saveTheme != nil {
 		if err := m.saveTheme(name); err != nil {
-			cmd = m.showToast(fmt.Sprintf("Could not save theme: %s", err))
+			cmd = m.showErrorToast(fmt.Sprintf("Could not save theme: %s", err))
 		}
 	}
 	m.refreshDiff()
@@ -1156,23 +1181,62 @@ func (m Model) themePickerVisibleRows() int {
 }
 
 func (m Model) renderToast(background string) string {
-	if m.toast == "" {
+	if m.toast.Message == "" {
 		return background
 	}
-	maxWidth := max(8, min(44, m.width-2))
-	text := ansi.Truncate(iconStatus+" "+m.toast, maxWidth-2, "")
-	toast := m.styles.Footer.Bold(true).Padding(0, 1).Render(text)
+	toast := m.renderToastBox()
 	x := max(0, m.width-lipgloss.Width(toast)-1)
+	y := 1
 
 	bgLines := strings.Split(background, "\n")
 	if len(bgLines) == 0 {
 		bgLines = []string{""}
 	}
-	line := bgLines[0]
-	left := ansi.Cut(line, 0, x)
-	right := ansi.Cut(line, x+lipgloss.Width(toast), lipgloss.Width(line))
-	bgLines[0] = left + toast + right
+	toastLines := strings.Split(toast, "\n")
+	for len(bgLines) < y+len(toastLines) {
+		bgLines = append(bgLines, "")
+	}
+	toastWidth := lipgloss.Width(toast)
+	for i, toastLine := range toastLines {
+		bgIndex := y + i
+		line := bgLines[bgIndex]
+		left := ansi.Cut(line, 0, x)
+		right := ansi.Cut(line, x+toastWidth, lipgloss.Width(line))
+		bgLines[bgIndex] = left + toastLine + right
+	}
 	return strings.Join(bgLines, "\n")
+}
+
+func (m Model) renderToastBox() string {
+	width := max(8, min(44, m.width-6))
+	title, accent := m.toastTitleAndStyle()
+	panelBackground := m.styles.Panel.GetBackground()
+	titleLine := accent.
+		Bold(true).
+		Background(panelBackground).
+		Width(width).
+		Render(iconStatus + " " + title)
+	messageLine := m.styles.Diff.
+		Background(panelBackground).
+		Width(width).
+		Render(ansi.Truncate(m.toast.Message, width, "…"))
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent.GetForeground()).
+		Background(panelBackground).
+		Padding(0, 1).
+		Render(strings.Join([]string{titleLine, messageLine}, "\n"))
+}
+
+func (m Model) toastTitleAndStyle() (string, lipgloss.Style) {
+	switch m.toast.Kind {
+	case toastError:
+		return "Error", m.styles.Error
+	case toastSuccess:
+		return "Success", m.styles.Added
+	default:
+		return "Info", m.styles.DiffHunk
+	}
 }
 
 func (m Model) renderOverlay(background, foreground string) string {

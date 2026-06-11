@@ -556,11 +556,57 @@ func TestDiffWrapToggleDisablesSoftWrap(t *testing.T) {
 	if got.viewport.SoftWrap {
 		t.Fatal("w should disable diff wrap on first press")
 	}
-	if got.toast != "diff wrap off" {
-		t.Fatalf("toast = %q, want diff wrap off", got.toast)
+	if got.toast.Message != "diff wrap off" || got.toast.Kind != toastInfo {
+		t.Fatalf("toast = %#v, want info diff wrap off", got.toast)
 	}
 	if !strings.Contains(got.View().Content, "diff wrap off") {
 		t.Fatalf("toast should render in view: %q", got.View().Content)
+	}
+}
+
+func TestToastHelpersSetTypedVariants(t *testing.T) {
+	model := testModel(t)
+
+	infoCmd := model.showToast("saved config")
+	if infoCmd == nil {
+		t.Fatal("info toast should return expiration command")
+	}
+	if model.toast.Message != "saved config" || model.toast.Kind != toastInfo {
+		t.Fatalf("info toast = %#v, want info saved config", model.toast)
+	}
+
+	errorCmd := model.showErrorToast("editor failed")
+	if errorCmd == nil {
+		t.Fatal("error toast should return expiration command")
+	}
+	if model.toast.Message != "editor failed" || model.toast.Kind != toastError {
+		t.Fatalf("error toast = %#v, want error editor failed", model.toast)
+	}
+
+	successCmd := model.showSuccessToast("deleted feature")
+	if successCmd == nil {
+		t.Fatal("success toast should return expiration command")
+	}
+	if model.toast.Message != "deleted feature" || model.toast.Kind != toastSuccess {
+		t.Fatalf("success toast = %#v, want success deleted feature", model.toast)
+	}
+}
+
+func TestToastRendersAsVariantOverlay(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 24
+	model.showErrorToast("editor failed: boom")
+
+	view := ansi.Strip(model.View().Content)
+
+	for _, want := range []string{"Error", "editor failed: boom", "╭", "╯"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("toast overlay missing %q in %q", want, view)
+		}
+	}
+	if strings.Contains(view, iconStatus+" editor failed: boom") {
+		t.Fatalf("toast should not render as compact status text: %q", view)
 	}
 }
 
@@ -569,14 +615,14 @@ func TestToastExpires(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "w", Code: 'w'}))
 	model = next.(Model)
-	if model.toast == "" {
+	if model.toast.Message == "" {
 		t.Fatal("expected toast after wrap toggle")
 	}
 
 	next, _ = model.Update(toastExpiredMsg{id: model.toastID})
 	model = next.(Model)
-	if model.toast != "" {
-		t.Fatalf("toast = %q, want empty after expiration", model.toast)
+	if model.toast.Message != "" {
+		t.Fatalf("toast = %#v, want empty after expiration", model.toast)
 	}
 }
 
@@ -637,8 +683,8 @@ func TestLineNumberToggleHidesGutter(t *testing.T) {
 	if strings.Contains(view, "1 │") {
 		t.Fatalf("line number gutter should be hidden: %q", view)
 	}
-	if model.toast != "line numbers off" {
-		t.Fatalf("toast = %q, want line numbers off", model.toast)
+	if model.toast.Message != "line numbers off" || model.toast.Kind != toastInfo {
+		t.Fatalf("toast = %#v, want info line numbers off", model.toast)
 	}
 }
 
@@ -865,8 +911,8 @@ func TestDeleteKeyBlocksProtectedWorktree(t *testing.T) {
 	if got.confirmDelete {
 		t.Fatal("protected delete should not open confirm dialog")
 	}
-	if !strings.Contains(got.toast, "protected") {
-		t.Fatalf("toast = %q, want protected warning", got.toast)
+	if !strings.Contains(got.toast.Message, "protected") || got.toast.Kind != toastError {
+		t.Fatalf("toast = %#v, want protected error", got.toast)
 	}
 }
 
@@ -899,8 +945,8 @@ func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	if got.confirmDelete {
 		t.Fatal("confirm dialog should close after delete")
 	}
-	if !strings.Contains(got.toast, "deleted feature") {
-		t.Fatalf("toast = %q, want deleted feature", got.toast)
+	if !strings.Contains(got.toast.Message, "deleted feature") || got.toast.Kind != toastSuccess {
+		t.Fatalf("toast = %#v, want deleted feature success", got.toast)
 	}
 }
 
@@ -1018,8 +1064,8 @@ func TestEditKeyShowsToastWhenNoFileSelected(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("e without selected file should return toast command")
 	}
-	if got.toast != "no file selected" {
-		t.Fatalf("toast = %q, want no file selected", got.toast)
+	if got.toast.Message != "no file selected" || got.toast.Kind != toastInfo {
+		t.Fatalf("toast = %#v, want info no file selected", got.toast)
 	}
 }
 
@@ -1032,8 +1078,8 @@ func TestEditorFailureShowsToast(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("editor failure should return toast command")
 	}
-	if !strings.Contains(got.toast, "editor failed: boom") {
-		t.Fatalf("toast = %q, want editor failure", got.toast)
+	if !strings.Contains(got.toast.Message, "editor failed: boom") || got.toast.Kind != toastError {
+		t.Fatalf("toast = %#v, want editor failure error", got.toast)
 	}
 }
 
