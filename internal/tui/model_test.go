@@ -132,6 +132,22 @@ func TestFooterOmitsCurrentThemeName(t *testing.T) {
 	}
 }
 
+func TestFooterUsesCompactHints(t *testing.T) {
+	model := testModel(t)
+
+	footer := model.footerText()
+	for _, want := range []string{"1-9", "tab", "j/k", "r", "t", "?", "q"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer missing %q in %q", want, footer)
+		}
+	}
+	for _, unwanted := range []string{"worktree", "next", "file", "refresh", "themes", "help", "quit"} {
+		if strings.Contains(footer, unwanted) {
+			t.Fatalf("footer should be compact; found %q in %q", unwanted, footer)
+		}
+	}
+}
+
 func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{
