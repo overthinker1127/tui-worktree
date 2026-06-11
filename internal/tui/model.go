@@ -168,6 +168,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickingTheme {
 			return m.handleThemeKey(msg)
 		}
+		if m.selectWorktreeShortcut(msg.String()) {
+			return m, m.ensureSelectedDiffCmd()
+		}
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
@@ -215,13 +218,13 @@ func (m Model) View() tea.View {
 
 	worktreeHeight := m.worktreePaneHeight(contentHeight)
 	worktrees := m.renderWorktrees(leftWidth, worktreeHeight)
-	files := m.renderFiles(leftWidth, max(4, contentHeight-worktreeHeight))
+	files := m.renderFiles(leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)))
 	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
 	diff := m.renderDiff(rightWidth, contentHeight)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
 	header := m.styles.Title.Render("Files changed")
-	footerText := fmt.Sprintf("%s theme:%s  tab worktree  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
+	footerText := fmt.Sprintf("%s theme:%s  1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
 	if m.status != "" {
 		footerText = m.status + "  " + footerText
 	}
@@ -283,6 +286,18 @@ func (m *Model) moveWorktree(delta int) {
 		m.selectedWorktree = 0
 	}
 	m.selectWorktree(m.selectedWorktree)
+}
+
+func (m *Model) selectWorktreeShortcut(key string) bool {
+	if len(key) != 1 || key[0] < '1' || key[0] > '9' {
+		return false
+	}
+	index := int(key[0] - '1')
+	if index >= len(m.worktrees) {
+		return false
+	}
+	m.selectWorktree(index)
+	return true
 }
 
 func (m *Model) openThemePicker() {
@@ -481,7 +496,7 @@ func (m Model) renderWorktrees(width, height int) string {
 	end := min(len(m.worktrees), offset+visibleRows)
 	for i, worktree := range m.worktrees[offset:end] {
 		index := offset + i
-		line := renderWorktreeLine(m.styles, worktree)
+		line := renderWorktreeLine(m.styles, index, worktree)
 		if index == m.selectedWorktree {
 			line = m.styles.FileSelected.Width(contentWidth).Render(line)
 		} else {
@@ -492,7 +507,8 @@ func (m Model) renderWorktrees(width, height int) string {
 	if end < len(m.worktrees) {
 		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.worktrees)-end)))
 	}
-	return m.styles.PanelFocused.Width(contentWidth).Height(panelInnerHeight(height)).Render(strings.Join(lines, "\n"))
+	innerHeight := panelInnerHeight(height)
+	return m.styles.PanelFocused.Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
 }
 
 func (m Model) worktreeListOffset(height int) int {
@@ -533,7 +549,8 @@ func (m Model) renderFiles(width, height int) string {
 	} else if end < len(m.changes) {
 		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
 	}
-	return m.styles.PanelFocused.Width(contentWidth).Height(panelInnerHeight(height)).Render(strings.Join(lines, "\n"))
+	innerHeight := panelInnerHeight(height)
+	return m.styles.PanelFocused.Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
 }
 
 func (m Model) listOffset(height int) int {
@@ -564,6 +581,7 @@ func (m Model) renderDiff(width, height int) string {
 func (m Model) renderHelp() string {
 	lines := []string{
 		m.styles.Title.Render(iconHelp + " Help"),
+		"1-9: jump to worktree",
 		"tab / shift+tab: switch worktree",
 		"j/k or arrows: move file selection",
 		iconRefresh + " r refresh: reload git worktree changes",
@@ -630,7 +648,7 @@ func (m Model) diffKey(change gitview.FileChange) string {
 	return m.SelectedWorktree().Path + "\x00" + change.Path
 }
 
-func renderWorktreeLine(styles theme.Styles, state WorktreeState) string {
+func renderWorktreeLine(styles theme.Styles, index int, state WorktreeState) string {
 	worktree := state.Worktree
 	name := worktree.Branch
 	if name == "" {
@@ -644,7 +662,11 @@ func renderWorktreeLine(styles theme.Styles, state WorktreeState) string {
 	if state.Error != nil {
 		summary = "!"
 	}
-	return fmt.Sprintf("%s %s %s %s", styles.Muted.Render(marker), styles.Muted.Render(iconBranch), name, styles.Muted.Render(summary))
+	shortcut := " "
+	if index < 9 {
+		shortcut = fmt.Sprintf("%d", index+1)
+	}
+	return fmt.Sprintf("%s %s %s %s %s", styles.Muted.Render(shortcut), styles.Muted.Render(marker), styles.Muted.Render(iconBranch), name, styles.Muted.Render(summary))
 }
 
 func panelInnerWidth(width int) int {
@@ -653,6 +675,13 @@ func panelInnerWidth(width int) int {
 
 func panelInnerHeight(height int) int {
 	return max(1, height-2)
+}
+
+func fillLines(lines []string, height int) []string {
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return lines
 }
 
 func renderFileLine(styles theme.Styles, change gitview.FileChange) string {

@@ -1,6 +1,6 @@
-# worktree-diff-tui
+# tui-worktree
 
-Read-only TUI for reviewing the current git worktree in a GitHub PR-style files changed view.
+Read-only TUI for reviewing linked git worktrees in a GitHub PR-style files changed view.
 
 ## Run
 
@@ -12,6 +12,12 @@ Override repo or theme:
 
 ```bash
 task run REPO=/path/to/repo THEME=kanagawa
+```
+
+Install:
+
+```bash
+task install
 ```
 
 Compatibility alias:
@@ -55,6 +61,8 @@ task check
 
 ## Keys
 
+- `1`-`9`: jump to worktree
+- `tab` / `shift+tab`: next or previous worktree
 - `j` / `down`: next file
 - `k` / `up`: previous file
 - `g` / `home`: first file
