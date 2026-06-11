@@ -55,7 +55,7 @@
 
 ### Task T3
 
-- Goal: Implement theme tokens, dark/light/TokyoNight/Kanagawa presets, and Lip Gloss style construction.
+- Goal: Implement theme tokens, common named presets, and Lip Gloss style construction.
 - Depends on:
   - T1
 - Write Scope:
@@ -68,7 +68,7 @@
 
 ### Task T4
 
-- Goal: Implement the Bubble Tea model, keybindings, list navigation, diff viewport, and error states.
+- Goal: Implement the Bubble Tea model, keybindings, list navigation, diff viewport, refresh, theme picker, help overlay, mouse selection, and error states.
 - Depends on:
   - T2
   - T3
@@ -85,7 +85,7 @@
 
 ### Task T5
 
-- Goal: Wire the CLI entrypoint, repository path detection, theme selection flag, and terminal-safe app startup.
+- Goal: Wire the CLI entrypoint, repository path detection, theme selection flag, refresh data loading, and terminal-safe app startup.
 - Depends on:
   - T4
 - Write Scope:
@@ -113,7 +113,7 @@
 - Checks:
   - `go test ./...`
   - `manual: create a temporary git repository with modified, added, deleted, renamed, and binary files`
-  - `manual: run the TUI and verify file list, add/delete counts, diff scrolling, theme switching, quit, and terminal recovery`
+  - `manual: run the TUI and verify file list, add/delete counts, diff scrolling, refresh, theme picker, help overlay, mouse selection, quit, and terminal recovery`
 - Parallel-safe: no
 
 ## Notes

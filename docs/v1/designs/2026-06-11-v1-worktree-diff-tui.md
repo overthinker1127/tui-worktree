@@ -97,7 +97,8 @@ Developers need a focused TUI to inspect the current repository's changed files 
   - Render selected file diff in a scrollable preview.
   - Provide keyboard navigation and quit behavior.
   - Add theme presets and a reusable theme/style boundary.
-  - Include modern presets inspired by TokyoNight and Kanagawa.
+  - Include common named presets inspired by VS Code, Catppuccin, Gruvbox, Solarized, TokyoNight, Kanagawa, Nord, Dracula, One Dark, Rosé Pine, Monokai, Everforest, and Ayu.
+  - Add `r` refresh, `t` theme picker, `?` help overlay, and mouse selection for files/theme entries.
 - Out:
   - Commit, push, pull, branch, and PR creation.
   - Staging/unstaging files or hunks.
@@ -114,7 +115,7 @@ Developers need a focused TUI to inspect the current repository's changed files 
 
 - What should the project/module name be?
 - Should v1 initialize a git repository here, or should implementation move into an existing repository?
-- Which theme variants should be prioritized after `tokyonight`, `tokyonight-storm`, `kanagawa-wave`, and `kanagawa-dragon`?
+- Which additional named theme variants should be prioritized after the initial famous theme set?
 
 ## Plan Handoff
 
@@ -144,7 +145,11 @@ Developers need a focused TUI to inspect the current repository's changed files 
 - Running the CLI inside a git repository opens a TUI with a changed-file list.
 - Each changed file shows status plus added/deleted line counts where available.
 - Selecting a file displays a scrollable diff preview.
-- Dark, light, TokyoNight, and Kanagawa-style theme presets are applied through a central theme layer.
+- Common named theme presets are applied through a central theme layer without generic `dark`/`light` presets.
+- `r` refresh reloads local git changes.
+- `t` opens an in-TUI theme picker.
+- `?` opens a help overlay.
+- Mouse clicks can select files and theme entries.
 - Git command failures are visible in the TUI instead of crashing the terminal session.
 
 ### Non-Goals
@@ -165,7 +170,7 @@ Developers need a focused TUI to inspect the current repository's changed files 
 - Unit tests for theme token construction.
 - Manual run in a fixture git repository with modified, added, deleted, renamed, and binary files.
 - `go test ./...`.
-- Manual terminal smoke test for navigation, scrolling, theme switching, and terminal recovery.
+- Manual terminal smoke test for navigation, scrolling, refresh, theme picker, help overlay, mouse selection, and terminal recovery.
 
 ### Parallelization Hints
 

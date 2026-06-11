@@ -7,7 +7,7 @@
   - Go module and CLI entrypoint exist.
   - TUI shows current repository worktree changes in a GitHub PR-style files changed view.
   - Selected file diff preview is scrollable.
-  - Theme presets are wired through a reusable theme model, including TokyoNight and Kanagawa-style presets.
+  - Theme presets are wired through a reusable theme model, including common named palettes such as VS Code, Catppuccin, Gruvbox, Solarized, TokyoNight, Kanagawa, Nord, Dracula, One Dark, Rosé Pine, Monokai, Everforest, and Ayu.
 
 ## Upcoming Versions
 
