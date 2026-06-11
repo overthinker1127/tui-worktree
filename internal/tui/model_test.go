@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -1011,6 +1012,60 @@ func TestMergeTargetEnterRunsMergeCallback(t *testing.T) {
 	}
 }
 
+func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	model.mergeBranch = func(context.Context, MergeRequest) error { return nil }
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	if cmd == nil {
+		t.Fatal("first merge enter should return command")
+	}
+	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+
+	if duplicate != nil {
+		t.Fatal("duplicate merge enter should be ignored while merge is in flight")
+	}
+	if !got.mergingBranch {
+		t.Fatal("merge should remain in flight until command finishes")
+	}
+}
+
+func TestDefaultMergeBranchUsesNoEdit(t *testing.T) {
+	dir := t.TempDir()
+	bin := t.TempDir()
+	logPath := bin + "/git-args"
+	gitPath := bin + "/git"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + logPath + "\n"
+	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := defaultMergeBranch(context.Background(), MergeRequest{
+		Source: gitview.Worktree{Branch: "feature"},
+		Target: gitview.Worktree{Path: dir, Branch: "main"},
+	})
+	if err != nil {
+		t.Fatalf("defaultMergeBranch() error = %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read fake git args: %v", err)
+	}
+
+	if strings.TrimSpace(string(got)) != "merge --no-edit feature" {
+		t.Fatalf("git args = %q, want merge --no-edit feature", strings.TrimSpace(string(got)))
+	}
+}
+
 func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
@@ -1130,6 +1185,29 @@ func TestPRFormSubmitCreatesPullRequest(t *testing.T) {
 	}
 }
 
+func TestPRFormSubmitIgnoresDuplicateWhileInFlight(t *testing.T) {
+	model := testModel(t)
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.createPullRequest = func(context.Context, PullRequestRequest) error { return nil }
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	model = next.(Model)
+	model.prTitle.SetValue("Add PR creator")
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("first PR submit should return command")
+	}
+	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	got := next.(Model)
+
+	if duplicate != nil {
+		t.Fatal("duplicate PR submit should be ignored while create is in flight")
+	}
+	if !got.submittingPR {
+		t.Fatal("PR should remain submitting until command finishes")
+	}
+}
+
 func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
 	model := testModel(t)
 	model.findForgeCLI = func() (string, bool) { return "glab", true }
@@ -1152,6 +1230,9 @@ func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
 	}
 	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "not authenticated") {
 		t.Fatalf("toast = %#v, want auth error", got.toast)
+	}
+	if got.submittingPR {
+		t.Fatal("failed PR create should clear submitting state")
 	}
 }
 
@@ -1215,6 +1296,32 @@ func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	}
 	if !strings.Contains(got.toast.Message, "deleted feature") || got.toast.Kind != toastSuccess {
 		t.Fatalf("toast = %#v, want deleted feature success", got.toast)
+	}
+}
+
+func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	model.deleteWorktree = func(context.Context, gitview.Worktree) error { return nil }
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	if cmd == nil {
+		t.Fatal("first confirm delete should return command")
+	}
+	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	got := next.(Model)
+
+	if duplicate != nil {
+		t.Fatal("duplicate confirm delete should be ignored while delete is in flight")
+	}
+	if !got.deletingWorktree {
+		t.Fatal("delete should remain in flight until command finishes")
 	}
 }
 
@@ -1444,6 +1551,63 @@ func TestAutoRefreshReloadsChanges(t *testing.T) {
 	}
 	if !strings.Contains(got.View().Content, "fresh") {
 		t.Fatalf("View() missing refreshed diff: %q", got.View().Content)
+	}
+}
+
+func TestAutoRefreshSkipsReloadWhilePreviousReloadIsInFlight(t *testing.T) {
+	model := testModel(t)
+	model.reload = func(context.Context, string) Snapshot {
+		return Snapshot{
+			Changes: []gitview.FileChange{{Path: "fresh.go", Status: gitview.Added}},
+			Diffs:   map[string]string{"fresh.go": "diff --git a/fresh.go b/fresh.go\n+fresh"},
+		}
+	}
+
+	next, cmd := model.Update(autoRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("first auto-refresh command is nil")
+	}
+	model = next.(Model)
+	if model.refreshGeneration != 1 {
+		t.Fatalf("refreshGeneration after first refresh = %d, want 1", model.refreshGeneration)
+	}
+
+	next, cmd = model.Update(autoRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("second auto-refresh should still schedule the next tick")
+	}
+	model = next.(Model)
+	if model.refreshGeneration != 1 {
+		t.Fatalf("refreshGeneration after skipped refresh = %d, want 1", model.refreshGeneration)
+	}
+}
+
+func TestAutoRefreshClosesMergeTargetPickerToAvoidStaleTargets(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	model = next.(Model)
+	if !model.pickingMergeTarget {
+		t.Fatal("merge target picker should be open before refresh")
+	}
+
+	model.applySnapshot(Snapshot{
+		Worktrees:        model.worktrees,
+		SelectedWorktree: model.selectedWorktree,
+		Changes:          model.changes,
+		Diffs:            model.diffs,
+	})
+
+	if model.pickingMergeTarget {
+		t.Fatal("refresh should close merge target picker to avoid stale targets")
+	}
+	if model.mergeSource.Path != "" {
+		t.Fatalf("mergeSource = %#v, want cleared", model.mergeSource)
 	}
 }
 
