@@ -345,10 +345,10 @@ func (m *Model) applyThemeCursor() {
 	}
 	m.themeName = name
 	m.styles = theme.NewStyles(preset)
-	m.status = fmt.Sprintf("Theme changed to %s", name)
+	m.status = ""
 	if m.saveTheme != nil {
 		if err := m.saveTheme(name); err != nil {
-			m.status = fmt.Sprintf("Theme changed to %s; save failed: %s", name, err)
+			m.status = fmt.Sprintf("Could not save theme: %s", err)
 		}
 	}
 	m.refreshDiff()

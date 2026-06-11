@@ -88,6 +88,9 @@ func TestThemePickerAppliesTheme(t *testing.T) {
 	if got.themeName != "gruvbox" {
 		t.Fatalf("themeName = %q, want gruvbox", got.themeName)
 	}
+	if strings.Contains(got.View().Content, "Theme changed") {
+		t.Fatalf("theme success message should be hidden: %q", got.View().Content)
+	}
 }
 
 func TestThemePickerSavesTheme(t *testing.T) {
