@@ -198,6 +198,26 @@ func TestOverlayUsesPanelBorderColor(t *testing.T) {
 	}
 }
 
+func TestOverlayBorderUsesPanelBackground(t *testing.T) {
+	tm, err := theme.Preset("github-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		ThemeName:  "github-light",
+		Theme:      theme.NewStyles(tm),
+		ThemeNames: []string{"github-light", "github-dark"},
+	})
+	model.openThemePicker()
+	picker := model.renderThemePicker()
+	firstLine, _, _ := strings.Cut(picker, "\n")
+	panelBackground := styleBackgroundToken(model.styles.Panel)
+
+	if panelBackground == "" || !strings.Contains(firstLine, panelBackground) {
+		t.Fatalf("theme picker border should use panel background token %q in %q", panelBackground, firstLine)
+	}
+}
+
 func TestThemePickerScrollsToCursor(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
