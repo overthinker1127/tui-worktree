@@ -27,7 +27,7 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 
 	view := model.View().Content
 
-	for _, want := range []string{"Files changed", "README.md", "+4", "-2", "diff --git"} {
+	for _, want := range []string{"Files changed", "[1]-", "[2]-", "[3]-", "README.md", "+4", "-2", "diff --git"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q in %q", want, view)
 		}
@@ -149,7 +149,7 @@ func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model.refreshDiff()
 
 	view := model.View().Content
-	for _, want := range []string{"worktrees", "1", "2", "main", "feature", "main.go"} {
+	for _, want := range []string{"[1]-", "[2]-", "[3]-", "worktrees", "1", "2", "main", "feature", "main.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("worktree sidebar missing %q in %q", want, view)
 		}
