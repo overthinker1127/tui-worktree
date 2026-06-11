@@ -69,16 +69,17 @@ task check
 
 ## Keys
 
-- `1`-`9`: jump to worktree
+- `1` / `2` / `3`: focus worktrees, files, or diff panel
 - `tab` / `shift+tab`: next or previous worktree
-- `j` / `down`: next file
-- `k` / `up`: previous file
+- `j` / `down`: next item in the focused list
+- `k` / `up`: previous item in the focused list
 - `g` / `home`: first file
 - `G` / `end`: last file
-- `r`: refresh worktree changes
 - `t`: open theme picker
 - `?`: toggle help
 - `q` / `esc` / `ctrl+c`: quit
+
+Worktree changes auto-refresh every 5 seconds.
 
 ## Manual Smoke Test
 

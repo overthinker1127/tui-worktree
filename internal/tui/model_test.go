@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
@@ -27,7 +28,10 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 
 	view := model.View().Content
 
-	for _, want := range []string{"Files changed", "[1]-", "[2]-", "[3]-", "README.md", "+4", "-2", "diff --git"} {
+	if strings.Contains(view, "Files changed") {
+		t.Fatalf("View() should not render Files changed title: %q", view)
+	}
+	for _, want := range []string{"[1]-", "[2]-", "[3]-", "README.md", "+4", "-2", "diff --git"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing %q in %q", want, view)
 		}
@@ -69,7 +73,7 @@ func TestQuestionMarkTogglesHelp(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	view := next.(Model).View().Content
 
-	for _, want := range []string{"Help", " r refresh", " t themes", "a.go"} {
+	for _, want := range []string{"Help", "1/2/3: focus panels", "auto-refresh", " t themes", "a.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q in %q", want, view)
 		}
@@ -139,10 +143,35 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	model := testModel(t)
 
 	footer := model.footerText()
-	for _, want := range []string{"1-9 worktree", "tab next", "j/k file", "r refresh", "t themes", "? help", "q quit"} {
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "j/k move", "auto 5s", "t themes", "? help", "q quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
+	}
+	for _, want := range []string{iconWorktree, iconKey, iconFile, " │ "} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
+		}
+	}
+}
+
+func TestFooterAlignsToRightEdge(t *testing.T) {
+	model := testModel(t)
+	model.width = 120
+
+	line := rightAlignText(model.footerText(), model.width)
+
+	if got := lipgloss.Width(line); got != model.width {
+		t.Fatalf("right aligned footer width = %d, want %d", got, model.width)
+	}
+	if !strings.HasSuffix(line, model.footerText()) {
+		t.Fatalf("footer should be right aligned: %q", line)
+	}
+	if !strings.HasPrefix(line, " ") {
+		t.Fatalf("footer should have leading fill before text: %q", line)
+	}
+	if got := rightAlignText("abcdef", 3); got != "def" {
+		t.Fatalf("narrow footer = %q, want def", got)
 	}
 }
 
@@ -163,10 +192,26 @@ func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model.refreshDiff()
 
 	view := model.View().Content
-	for _, want := range []string{"[1]-", "[2]-", "[3]-", "worktrees", "1", "2", "main", "feature", "main.go"} {
+	for _, want := range []string{"[1]-", "[2]-", "[3]-", "worktrees", "main", "feature", "main.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("worktree sidebar missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestWorktreeLineOmitsShortcutAndChangeCount(t *testing.T) {
+	model := testModel(t)
+	line := renderWorktreeLine(model.styles, 3, WorktreeState{
+		Worktree: gitview.Worktree{Branch: "feature"},
+		Changes:  []gitview.FileChange{{Path: "a.go"}, {Path: "b.go"}, {Path: "c.go"}, {Path: "d.go"}, {Path: "e.go"}, {Path: "f.go"}, {Path: "g.go"}},
+	})
+	plain := ansi.Strip(line)
+
+	if strings.Contains(plain, "3") || strings.Contains(plain, "4") || strings.Contains(plain, "7") {
+		t.Fatalf("worktree line should not include shortcut or change count: %q", plain)
+	}
+	if !strings.Contains(plain, iconBranch+" feature") {
+		t.Fatalf("worktree line missing branch label: %q", plain)
 	}
 }
 
@@ -197,30 +242,22 @@ func TestTabSwitchesWorktree(t *testing.T) {
 	}
 }
 
-func TestNumberKeySwitchesWorktree(t *testing.T) {
+func TestNumberKeysFocusPanels(t *testing.T) {
 	model := testModel(t)
-	model.worktrees = []WorktreeState{
-		{
-			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
-			Changes:  []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
-		},
-		{
-			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
-			Changes:  []gitview.FileChange{{Path: "feature.go", Status: gitview.Added}},
-		},
-	}
-	model.selectedWorktree = 0
-	model.changes = model.worktrees[0].Changes
-	model.refreshDiff()
 
-	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "2", Code: '2'}))
-	got := next.(Model)
-
-	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
-		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
-	}
-	if !strings.Contains(got.View().Content, "● [1]-") {
-		t.Fatalf("worktree panel should be focused after numeric jump: %q", got.View().Content)
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{key: "1", want: "● [1]-"},
+		{key: "2", want: "● [2]-"},
+		{key: "3", want: "● [3]-"},
+	} {
+		next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: tc.key, Code: rune(tc.key[0])}))
+		model = next.(Model)
+		if !strings.Contains(model.View().Content, tc.want) {
+			t.Fatalf("key %s should focus panel %q: %q", tc.key, tc.want, model.View().Content)
+		}
 	}
 }
 
@@ -241,7 +278,7 @@ func TestSidebarPanelsFillBodyHeight(t *testing.T) {
 	model.width = 100
 	model.height = 30
 	leftWidth, _ := model.layoutWidths()
-	contentHeight := max(4, model.height-4)
+	contentHeight := model.bodyHeight()
 	worktrees := model.renderWorktrees(leftWidth, model.worktreePaneHeight(contentHeight))
 	files := model.renderFiles(leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)))
 	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
@@ -251,7 +288,15 @@ func TestSidebarPanelsFillBodyHeight(t *testing.T) {
 	}
 }
 
-func TestRefreshReloadsChanges(t *testing.T) {
+func TestInitSchedulesAutoRefresh(t *testing.T) {
+	model := testModel(t)
+
+	if cmd := model.Init(); cmd == nil {
+		t.Fatal("Init() did not schedule auto-refresh")
+	}
+}
+
+func TestAutoRefreshReloadsChanges(t *testing.T) {
 	model := testModel(t)
 	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
@@ -260,11 +305,15 @@ func TestRefreshReloadsChanges(t *testing.T) {
 		}
 	}
 
-	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	next, cmd := model.Update(autoRefreshMsg{})
 	if cmd == nil {
-		t.Fatal("refresh command is nil")
+		t.Fatal("auto-refresh command is nil")
 	}
-	msg := cmd()
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("auto-refresh command = %#v, want batch", cmd())
+	}
+	msg := batch[0]()
 	next, _ = next.(Model).Update(msg)
 	got := next.(Model)
 
@@ -276,7 +325,7 @@ func TestRefreshReloadsChanges(t *testing.T) {
 	}
 }
 
-func TestRefreshUsesConfiguredContext(t *testing.T) {
+func TestAutoRefreshUsesConfiguredContext(t *testing.T) {
 	model := testModel(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -288,11 +337,15 @@ func TestRefreshUsesConfiguredContext(t *testing.T) {
 		return Snapshot{}
 	}
 
-	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	_, cmd := model.Update(autoRefreshMsg{})
 	if cmd == nil {
-		t.Fatal("refresh command is nil")
+		t.Fatal("auto-refresh command is nil")
 	}
-	_ = cmd()
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("auto-refresh command = %#v, want batch", cmd())
+	}
+	_ = batch[0]()
 }
 
 func TestMouseClickSelectsFile(t *testing.T) {
@@ -303,7 +356,7 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	}
 	model.refreshDiff()
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 7}))
 	got := next.(Model).Selected()
 
 	if got.Path != "b.go" {
@@ -323,7 +376,7 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 	}
 	model.refreshDiff()
 
-	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
+	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 7}))
 	if cmd == nil {
 		t.Fatal("mouse selection did not request lazy diff load")
 	}
@@ -463,7 +516,7 @@ func TestRefreshStartInvalidatesPendingLazyDiff(t *testing.T) {
 		t.Fatal("expected lazy diff command")
 	}
 
-	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	next, _ := model.Update(autoRefreshMsg{})
 	next, _ = next.(Model).Update(cmd())
 	got := next.(Model)
 
