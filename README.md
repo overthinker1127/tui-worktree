@@ -73,10 +73,17 @@ git -C "$tmp" init -b main
 git -C "$tmp" config user.email smoke@example.com
 git -C "$tmp" config user.name Smoke
 printf "hello\n" > "$tmp/README.md"
-git -C "$tmp" add README.md
+printf "remove me\n" > "$tmp/deleted.txt"
+printf "rename me\n" > "$tmp/old name.txt"
+printf "\x00\x01\x02" > "$tmp/image.bin"
+git -C "$tmp" add .
 git -C "$tmp" commit -m init
 printf "hello\nworld\n" > "$tmp/README.md"
 printf "new\n" > "$tmp/added.txt"
+git -C "$tmp" add added.txt
+rm "$tmp/deleted.txt"
+git -C "$tmp" mv "old name.txt" "new name.txt"
+printf "\x03\x04" >> "$tmp/image.bin"
 task run REPO="$tmp" THEME=tokyonight
 ```
 

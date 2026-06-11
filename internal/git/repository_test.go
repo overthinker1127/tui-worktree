@@ -25,8 +25,8 @@ func (f *fakeRunner) Run(_ context.Context, _ string, name string, args ...strin
 
 func TestRepositoryChangesCombinesStatusAndNumstat(t *testing.T) {
 	runner := &fakeRunner{outputs: map[string]string{
-		"git status --porcelain=v1":  " M README.md\n?? scratch.txt\n",
-		"git diff --numstat HEAD --": "4\t2\tREADME.md\n",
+		"git status --porcelain=v1 -z":  " M README.md\x00?? scratch.txt\x00",
+		"git diff --numstat -z HEAD --": "4\t2\tREADME.md\x00",
 	}}
 	repo := Repository{Dir: ".", Runner: runner}
 
@@ -58,7 +58,7 @@ func TestRepositoryDiffReturnsUntrackedMessage(t *testing.T) {
 
 func TestRepositoryChangesWrapsStatusError(t *testing.T) {
 	runner := &fakeRunner{
-		errs: map[string]error{"git status --porcelain=v1": errors.New("not a repo")},
+		errs: map[string]error{"git status --porcelain=v1 -z": errors.New("not a repo")},
 	}
 	repo := Repository{Runner: runner}
 

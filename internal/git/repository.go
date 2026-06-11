@@ -29,7 +29,7 @@ type Repository struct {
 
 func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 	runner := r.runner()
-	statusOut, err := runner.Run(ctx, r.Dir, "git", "status", "--porcelain=v1")
+	statusOut, err := runner.Run(ctx, r.Dir, "git", "status", "--porcelain=v1", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
@@ -38,7 +38,7 @@ func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 		return nil, err
 	}
 
-	numstatOut, err := runner.Run(ctx, r.Dir, "git", "diff", "--numstat", "HEAD", "--")
+	numstatOut, err := runner.Run(ctx, r.Dir, "git", "diff", "--numstat", "-z", "HEAD", "--")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --numstat: %w", err)
 	}
@@ -53,7 +53,13 @@ func (r Repository) Diff(ctx context.Context, change FileChange) (string, error)
 	if change.Status == Untracked {
 		return fmt.Sprintf("Untracked file: %s\n\nNo diff is available until the file is added to git.", change.Path), nil
 	}
-	out, err := r.runner().Run(ctx, r.Dir, "git", "diff", "--no-ext-diff", "--color=always", "HEAD", "--", change.Path)
+	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=always", "HEAD", "--"}
+	if change.Status == Renamed && change.OldPath != "" {
+		args = append(args, change.OldPath, change.Path)
+	} else {
+		args = append(args, change.Path)
+	}
+	out, err := r.runner().Run(ctx, r.Dir, "git", args...)
 	if err != nil {
 		return "", fmt.Errorf("git diff %s: %w", change.Path, err)
 	}

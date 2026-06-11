@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +43,59 @@ func TestRepositoryWithRealGitWorktree(t *testing.T) {
 	}
 	if changes[1].Path != "scratch.txt" || changes[1].Status != Untracked {
 		t.Fatalf("scratch change = %#v, want untracked", changes[1])
+	}
+}
+
+func TestRepositoryHandlesSpacesAndPureRename(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+
+	spaced := filepath.Join(dir, "a b.txt")
+	oldPath := filepath.Join(dir, "old name.txt")
+	if err := os.WriteFile(spaced, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write spaced file: %v", err)
+	}
+	if err := os.WriteFile(oldPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "init")
+
+	if err := os.WriteFile(spaced, []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("modify spaced file: %v", err)
+	}
+	runGit(t, dir, "mv", "old name.txt", "new name.txt")
+
+	repo := Repository{Dir: dir}
+	changes, err := repo.Changes(context.Background())
+	if err != nil {
+		t.Fatalf("Changes() error = %v", err)
+	}
+
+	var spacedChange, renameChange FileChange
+	for _, change := range changes {
+		switch change.Path {
+		case "a b.txt":
+			spacedChange = change
+		case "new name.txt":
+			renameChange = change
+		}
+	}
+	if spacedChange.Path != "a b.txt" || spacedChange.Additions != 1 {
+		t.Fatalf("spaced change = %#v, want path with one addition", spacedChange)
+	}
+	if renameChange.Status != Renamed || renameChange.OldPath != "old name.txt" {
+		t.Fatalf("rename change = %#v, want old/new rename", renameChange)
+	}
+
+	diff, err := repo.Diff(context.Background(), renameChange)
+	if err != nil {
+		t.Fatalf("Diff(rename) error = %v", err)
+	}
+	if !strings.Contains(diff, "rename from old name.txt") || !strings.Contains(diff, "rename to new name.txt") {
+		t.Fatalf("rename diff = %q, want rename metadata", diff)
 	}
 }
 
