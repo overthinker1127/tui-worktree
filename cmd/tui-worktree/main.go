@@ -14,7 +14,7 @@ func main() {
 	opts, err := app.ParseArgs(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Print(app.Usage())
+			fmt.Print(app.Usage("tui-worktree"))
 			return
 		}
 		fmt.Fprintln(os.Stderr, err)

@@ -37,11 +37,14 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestUsageMentionsThemes(t *testing.T) {
-	usage := Usage()
+	usage := Usage("worktree-diff-tui")
 	for _, want := range []string{"tokyonight", "kanagawa", "--theme"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("Usage() missing %q in %q", want, usage)
 		}
+	}
+	if !strings.Contains(usage, "worktree-diff-tui") {
+		t.Fatalf("Usage() missing command name: %q", usage)
 	}
 }
 

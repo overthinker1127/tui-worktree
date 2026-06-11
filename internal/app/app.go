@@ -37,13 +37,16 @@ func ParseArgs(args []string) (Options, error) {
 	return opts, nil
 }
 
-func Usage() string {
+func Usage(command string) string {
+	if command == "" {
+		command = "tui-worktree"
+	}
 	return fmt.Sprintf(`Usage:
-  tui-worktree [--repo PATH] [--theme NAME]
+  %s [--repo PATH] [--theme NAME]
 
 Themes:
   %s
-`, strings.Join(theme.Names(), ", "))
+`, command, strings.Join(theme.Names(), ", "))
 }
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
