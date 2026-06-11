@@ -80,9 +80,35 @@ func TestNewStylesBuildsRenderableStyles(t *testing.T) {
 	}
 }
 
+func TestDiffStylesUseLineBackgrounds(t *testing.T) {
+	tm, err := Preset("tokyonight")
+	if err != nil {
+		t.Fatalf("Preset(\"tokyonight\") error = %v", err)
+	}
+
+	styles := NewStyles(tm)
+	added := styles.DiffAddition.Width(12).Render("+hello")
+	deleted := styles.DiffDeletion.Width(12).Render("-hello")
+
+	for name, rendered := range map[string]string{"added": added, "deleted": deleted} {
+		if !containsEscape(rendered, "48;2;") {
+			t.Fatalf("%s diff style = %q, want background color escape", name, rendered)
+		}
+	}
+}
+
 func contains(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEscape(value string, want string) bool {
+	for i := 0; i+len(want) <= len(value); i++ {
+		if value[i:i+len(want)] == want {
 			return true
 		}
 	}

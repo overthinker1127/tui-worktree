@@ -6,18 +6,20 @@ import (
 )
 
 type Theme struct {
-	Name          string
-	Background    string
-	Foreground    string
-	Muted         string
-	Accent        string
-	Border        string
-	Selection     string
-	Added         string
-	Deleted       string
-	Error         string
-	Panel         string
-	PanelSelected string
+	Name              string
+	Background        string
+	Foreground        string
+	Muted             string
+	Accent            string
+	Border            string
+	Selection         string
+	Added             string
+	AddedBackground   string
+	Deleted           string
+	DeletedBackground string
+	Error             string
+	Panel             string
+	PanelSelected     string
 }
 
 func Preset(name string) (Theme, error) {

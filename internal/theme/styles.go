@@ -23,6 +23,8 @@ type Styles struct {
 }
 
 func NewStyles(t Theme) Styles {
+	addedBackground := firstNonEmpty(t.AddedBackground, "#123524")
+	deletedBackground := firstNonEmpty(t.DeletedBackground, "#3a1f2b")
 	return Styles{
 		App:            lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(lipgloss.Color(t.Background)),
 		Title:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.Foreground)),
@@ -38,8 +40,17 @@ func NewStyles(t Theme) Styles {
 		Footer:         lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)),
 		Diff:           lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)),
 		DiffHunk:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)),
-		DiffAddition:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Added)),
-		DiffDeletion:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Deleted)),
+		DiffAddition:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Added)).Background(lipgloss.Color(addedBackground)),
+		DiffDeletion:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Deleted)).Background(lipgloss.Color(deletedBackground)),
 		DiffFileHeader: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Bold(true),
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
