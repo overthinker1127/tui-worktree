@@ -842,8 +842,14 @@ func TestDeleteKeyShowsConfirmForUnprotectedWorktree(t *testing.T) {
 	if !got.confirmDelete {
 		t.Fatal("delete key should open confirm dialog")
 	}
-	if !strings.Contains(got.View().Content, "Delete worktree?") {
-		t.Fatalf("delete confirm view missing prompt: %q", got.View().Content)
+	view := ansi.Strip(got.View().Content)
+	for _, want := range []string{"DELETE", "feature", "remove worktree and delete branch", "[Y]es", "[N]o"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("delete confirm view missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "y/enter yes") {
+		t.Fatalf("delete confirm should render option buttons, got %q", view)
 	}
 }
 
