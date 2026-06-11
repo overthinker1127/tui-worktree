@@ -138,7 +138,7 @@ func TestParseWorktreeList(t *testing.T) {
 	}
 
 	want := []Worktree{
-		{Path: "/repo", Branch: "main", Head: "abc123", Current: true},
+		{Path: "/repo", Branch: "main", Head: "abc123", Current: true, Primary: true},
 		{Path: "/repo/.worktrees/feature", Branch: "feature", Head: "def456"},
 	}
 	if !reflect.DeepEqual(got, want) {
