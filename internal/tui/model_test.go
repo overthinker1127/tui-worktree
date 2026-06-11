@@ -32,6 +32,9 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 			t.Fatalf("View() missing %q in %q", want, view)
 		}
 	}
+	if !strings.Contains(view, "● [2]-") {
+		t.Fatalf("View() should focus files panel by default: %q", view)
+	}
 	for _, want := range []string{"󰈙", ""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing Nerd Font symbol %q in %q", want, view)
@@ -132,18 +135,13 @@ func TestFooterOmitsCurrentThemeName(t *testing.T) {
 	}
 }
 
-func TestFooterUsesCompactHints(t *testing.T) {
+func TestFooterShowsDescriptiveHints(t *testing.T) {
 	model := testModel(t)
 
 	footer := model.footerText()
-	for _, want := range []string{"1-9", "tab", "j/k", "r", "t", "?", "q"} {
+	for _, want := range []string{"1-9 worktree", "tab next", "j/k file", "r refresh", "t themes", "? help", "q quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
-		}
-	}
-	for _, unwanted := range []string{"worktree", "next", "file", "refresh", "themes", "help", "quit"} {
-		if strings.Contains(footer, unwanted) {
-			t.Fatalf("footer should be compact; found %q in %q", unwanted, footer)
 		}
 	}
 }
@@ -194,6 +192,9 @@ func TestTabSwitchesWorktree(t *testing.T) {
 	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
 		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
 	}
+	if !strings.Contains(got.View().Content, "● [1]-") {
+		t.Fatalf("worktree panel should be focused after tab: %q", got.View().Content)
+	}
 }
 
 func TestNumberKeySwitchesWorktree(t *testing.T) {
@@ -217,6 +218,21 @@ func TestNumberKeySwitchesWorktree(t *testing.T) {
 
 	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
 		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
+	}
+	if !strings.Contains(got.View().Content, "● [1]-") {
+		t.Fatalf("worktree panel should be focused after numeric jump: %q", got.View().Content)
+	}
+}
+
+func TestMouseClickFocusesDiffPanel(t *testing.T) {
+	model := testModel(t)
+	leftWidth, _ := model.layoutWidths()
+
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: leftWidth + 2, Y: 5}))
+	got := next.(Model)
+
+	if !strings.Contains(got.View().Content, "● [3]-") {
+		t.Fatalf("diff panel should be focused after diff click: %q", got.View().Content)
 	}
 }
 
