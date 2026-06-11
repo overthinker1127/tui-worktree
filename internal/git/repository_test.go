@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,15 +46,35 @@ func TestRepositoryChangesCombinesStatusAndNumstat(t *testing.T) {
 	}
 }
 
-func TestRepositoryDiffReturnsUntrackedMessage(t *testing.T) {
-	repo := Repository{}
+func TestRepositoryDiffReturnsUntrackedFileContents(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "notes", "scratch.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{
+		"git rev-parse --show-toplevel": root + "\n",
+	}}
+	repo := Repository{Runner: runner}
 
-	got, err := repo.Diff(context.Background(), FileChange{Path: "scratch.txt", Status: Untracked})
+	got, err := repo.Diff(context.Background(), FileChange{Path: "notes/scratch.txt", Status: Untracked})
 	if err != nil {
 		t.Fatalf("Diff() error = %v", err)
 	}
-	if !strings.Contains(got, "Untracked file: scratch.txt") {
-		t.Fatalf("Diff() = %q, want untracked message", got)
+	for _, want := range []string{
+		"diff --git a/notes/scratch.txt b/notes/scratch.txt",
+		"new file mode 100644",
+		"--- /dev/null",
+		"+++ b/notes/scratch.txt",
+		"+hello",
+		"+world",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Diff() = %q, want %q", got, want)
+		}
 	}
 }
 

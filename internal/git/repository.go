@@ -1,9 +1,12 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,12 +63,12 @@ func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 }
 
 func (r Repository) Diff(ctx context.Context, change FileChange) (string, error) {
-	if change.Status == Untracked {
-		return fmt.Sprintf("Untracked file: %s\n\nNo diff is available until the file is added to git.", change.Path), nil
-	}
 	dir, err := r.root(ctx)
 	if err != nil {
 		return "", err
+	}
+	if change.Status == Untracked {
+		return untrackedDiff(dir, change.Path)
 	}
 	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=never"}
 	if r.hasHead(ctx, dir) {
@@ -87,6 +90,66 @@ func (r Repository) Diff(ctx context.Context, change FileChange) (string, error)
 		return fmt.Sprintf("No diff for %s", change.Path), nil
 	}
 	return out, nil
+}
+
+func untrackedDiff(root string, filePath string) (string, error) {
+	if filePath == "" {
+		return "", fmt.Errorf("untracked diff: missing path")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("untracked diff root: %w", err)
+	}
+	absPath, err := filepath.Abs(filepath.Join(absRoot, filepath.FromSlash(filePath)))
+	if err != nil {
+		return "", fmt.Errorf("untracked diff %s: %w", filePath, err)
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return "", fmt.Errorf("untracked diff %s: %w", filePath, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("untracked diff %s: path escapes repository", filePath)
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("read untracked file %s: %w", filePath, err)
+	}
+	displayPath := filepath.ToSlash(rel)
+	if bytes.Contains(data, []byte{0}) {
+		return fmt.Sprintf("Untracked file: %s\n\nBinary file preview is not available until the file is added to git.", displayPath), nil
+	}
+	return formatUntrackedDiff(displayPath, data), nil
+}
+
+func formatUntrackedDiff(filePath string, data []byte) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "diff --git a/%s b/%s\n", filePath, filePath)
+	out.WriteString("new file mode 100644\n")
+	out.WriteString("--- /dev/null\n")
+	fmt.Fprintf(&out, "+++ b/%s\n", filePath)
+	if len(data) == 0 {
+		out.WriteString("@@ -0,0 +0,0 @@\n")
+		return out.String()
+	}
+
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	trailingNewline := strings.HasSuffix(text, "\n")
+	lines := strings.Split(text, "\n")
+	if trailingNewline {
+		lines = lines[:len(lines)-1]
+	}
+	fmt.Fprintf(&out, "@@ -0,0 +1,%d @@\n", len(lines))
+	for _, line := range lines {
+		out.WriteByte('+')
+		out.WriteString(strings.TrimSuffix(line, "\r"))
+		out.WriteByte('\n')
+	}
+	if !trailingNewline {
+		out.WriteString("\\ No newline at end of file\n")
+	}
+	return out.String()
 }
 
 func (r Repository) Root(ctx context.Context) (string, error) {
