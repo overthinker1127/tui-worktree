@@ -55,7 +55,7 @@
 
 ### Task T3
 
-- Goal: Implement theme tokens, dark/light presets, and Lip Gloss style construction.
+- Goal: Implement theme tokens, dark/light/TokyoNight/Kanagawa presets, and Lip Gloss style construction.
 - Depends on:
   - T1
 - Write Scope:

@@ -7,7 +7,7 @@
   - Go module and CLI entrypoint exist.
   - TUI shows current repository worktree changes in a GitHub PR-style files changed view.
   - Selected file diff preview is scrollable.
-  - Theme presets are wired through a reusable theme model.
+  - Theme presets are wired through a reusable theme model, including TokyoNight and Kanagawa-style presets.
 
 ## Upcoming Versions
 

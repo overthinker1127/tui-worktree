@@ -97,6 +97,7 @@ Developers need a focused TUI to inspect the current repository's changed files 
   - Render selected file diff in a scrollable preview.
   - Provide keyboard navigation and quit behavior.
   - Add theme presets and a reusable theme/style boundary.
+  - Include modern presets inspired by TokyoNight and Kanagawa.
 - Out:
   - Commit, push, pull, branch, and PR creation.
   - Staging/unstaging files or hunks.
@@ -113,7 +114,7 @@ Developers need a focused TUI to inspect the current repository's changed files 
 
 - What should the project/module name be?
 - Should v1 initialize a git repository here, or should implementation move into an existing repository?
-- Which default theme names should ship first beyond `dark` and `light`?
+- Which theme variants should be prioritized after `tokyonight`, `tokyonight-storm`, `kanagawa-wave`, and `kanagawa-dragon`?
 
 ## Plan Handoff
 
@@ -143,7 +144,7 @@ Developers need a focused TUI to inspect the current repository's changed files 
 - Running the CLI inside a git repository opens a TUI with a changed-file list.
 - Each changed file shows status plus added/deleted line counts where available.
 - Selecting a file displays a scrollable diff preview.
-- Dark and light theme presets are applied through a central theme layer.
+- Dark, light, TokyoNight, and Kanagawa-style theme presets are applied through a central theme layer.
 - Git command failures are visible in the TUI instead of crashing the terminal session.
 
 ### Non-Goals
