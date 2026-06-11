@@ -1,0 +1,73 @@
+version: "3"
+
+vars:
+  REPO: '{{default "." .REPO}}'
+  THEME: '{{default "tokyonight" .THEME}}'
+
+tasks:
+  default:
+    desc: List available tasks.
+    cmds:
+      - task --list
+
+  run:
+    desc: Run worktree-diff-tui. Override with REPO=/path THEME=kanagawa.
+    cmds:
+      - go run ./cmd/worktree-diff-tui --repo "{{.REPO}}" --theme "{{.THEME}}"
+
+  run-legacy:
+    desc: Run the tui-worktree compatibility alias.
+    cmds:
+      - go run ./cmd/tui-worktree --repo "{{.REPO}}" --theme "{{.THEME}}"
+
+  help:
+    desc: Show CLI help.
+    cmds:
+      - go run ./cmd/worktree-diff-tui --help
+
+  fmt:
+    desc: Format Go source.
+    cmds:
+      - gofmt -w ./cmd ./internal
+
+  tidy:
+    desc: Tidy Go modules.
+    cmds:
+      - go mod tidy
+
+  test:
+    desc: Run all tests.
+    cmds:
+      - go test ./...
+
+  check:
+    desc: Format, tidy, test, and verify help output.
+    cmds:
+      - task: fmt
+      - task: tidy
+      - task: test
+      - task: help
+
+  smoke:
+    desc: Create a temporary git repository and run the TUI against it.
+    cmds:
+      - |
+        tmp=$(mktemp -d)
+        git -C "$tmp" init -b main
+        git -C "$tmp" config user.email smoke@example.com
+        git -C "$tmp" config user.name Smoke
+        printf "hello\n" > "$tmp/README.md"
+        printf "remove me\n" > "$tmp/deleted.txt"
+        printf "rename me\n" > "$tmp/old name.txt"
+        printf "\x00\x01\x02" > "$tmp/image.bin"
+        git -C "$tmp" add .
+        git -C "$tmp" commit -m init
+        printf "hello\nworld\n" > "$tmp/README.md"
+        printf "new\n" > "$tmp/added.txt"
+        git -C "$tmp" add added.txt
+        rm "$tmp/deleted.txt"
+        git -C "$tmp" mv "old name.txt" "new name.txt"
+        printf "\x03\x04" >> "$tmp/image.bin"
+        echo "Smoke repo: $tmp"
+        echo "Expected changes: modified README.md, added added.txt, deleted deleted.txt, renamed old name.txt -> new name.txt, binary image.bin"
+        go run ./cmd/worktree-diff-tui --repo "$tmp" --theme "{{.THEME}}"
