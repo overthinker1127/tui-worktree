@@ -91,9 +91,12 @@ task check
 - `k` / `up`: previous item in the focused list
 - `g` / `home`: first file
 - `G` / `end`: last file
+- `e`: open selected file in `$EDITOR`
+- `d`: delete selected worktree and branch after confirmation
+- `w`: toggle diff wrap
+- `n`: toggle diff line numbers
 - `t`: open theme picker
-- `?`: toggle help
-- `q` / `esc` / `ctrl+c`: quit
+- `q` / `ctrl+c`: quit
 
 Worktree changes auto-refresh every 5 seconds.
 
