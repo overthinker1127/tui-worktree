@@ -47,24 +47,25 @@ const (
 )
 
 type Model struct {
-	styles       theme.Styles
-	context      context.Context
-	themeName    string
-	themeNames   []string
-	themeCursor  int
-	changes      []gitview.FileChange
-	diffs        map[string]string
-	selected     int
-	revision     int
-	width        int
-	height       int
-	err          error
-	status       string
-	showHelp     bool
-	pickingTheme bool
-	loadDiff     func(context.Context, gitview.FileChange) string
-	reload       func(context.Context) Snapshot
-	viewport     viewport.Model
+	styles            theme.Styles
+	context           context.Context
+	themeName         string
+	themeNames        []string
+	themeCursor       int
+	changes           []gitview.FileChange
+	diffs             map[string]string
+	selected          int
+	revision          int
+	refreshGeneration int
+	width             int
+	height            int
+	err               error
+	status            string
+	showHelp          bool
+	pickingTheme      bool
+	loadDiff          func(context.Context, gitview.FileChange) string
+	reload            func(context.Context) Snapshot
+	viewport          viewport.Model
 }
 
 func NewModel(cfg Config) Model {
@@ -111,6 +112,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case reloadMsg:
+		if msg.generation != m.refreshGeneration {
+			return m, nil
+		}
 		m.applySnapshot(msg.snapshot)
 		return m, m.ensureSelectedDiffCmd()
 	case diffLoadedMsg:
@@ -154,8 +158,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.openThemePicker()
 		case "r":
+			m.revision++
+			m.refreshGeneration++
 			m.status = "Refreshing..."
-			return m, m.reloadCmd()
+			return m, m.reloadCmd(m.refreshGeneration)
 		case "j", "down":
 			m.moveSelection(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -299,15 +305,15 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	return false
 }
 
-func (m Model) reloadCmd() tea.Cmd {
+func (m Model) reloadCmd(generation int) tea.Cmd {
 	reload := m.reload
 	if reload == nil {
 		return func() tea.Msg {
-			return reloadMsg{snapshot: Snapshot{Changes: m.changes, Diffs: m.diffs, Error: fmt.Errorf("no reload source configured")}}
+			return reloadMsg{generation: generation, snapshot: Snapshot{Changes: m.changes, Diffs: m.diffs, Error: fmt.Errorf("no reload source configured")}}
 		}
 	}
 	return func() tea.Msg {
-		return reloadMsg{snapshot: reload(m.context)}
+		return reloadMsg{generation: generation, snapshot: reload(m.context)}
 	}
 }
 
@@ -518,7 +524,8 @@ func indexOf(items []string, want string) int {
 }
 
 type reloadMsg struct {
-	snapshot Snapshot
+	generation int
+	snapshot   Snapshot
 }
 
 type diffLoadedMsg struct {

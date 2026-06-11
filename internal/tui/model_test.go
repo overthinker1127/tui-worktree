@@ -264,6 +264,50 @@ func TestStaleLazyDiffDoesNotOverwriteRefreshedSnapshot(t *testing.T) {
 	}
 }
 
+func TestStaleRefreshDoesNotOverwriteNewerSnapshot(t *testing.T) {
+	model := testModel(t)
+	model.refreshGeneration = 2
+	model.applySnapshot(Snapshot{
+		Changes: []gitview.FileChange{{Path: "fresh.go", Status: gitview.Modified}},
+		Diffs:   map[string]string{"fresh.go": "diff --git a/fresh.go b/fresh.go\n+fresh"},
+	})
+	model.refreshGeneration = 2
+
+	next, _ := model.Update(reloadMsg{
+		generation: 1,
+		snapshot: Snapshot{
+			Changes: []gitview.FileChange{{Path: "stale.go", Status: gitview.Modified}},
+			Diffs:   map[string]string{"stale.go": "diff --git a/stale.go b/stale.go\n+stale"},
+		},
+	})
+	got := next.(Model)
+	view := got.View().Content
+	if strings.Contains(view, "stale.go") || !strings.Contains(view, "fresh.go") {
+		t.Fatalf("stale refresh overwrote newer snapshot: %q", view)
+	}
+}
+
+func TestRefreshStartInvalidatesPendingLazyDiff(t *testing.T) {
+	model := testModel(t)
+	model.diffs = map[string]string{}
+	model.loadDiff = func(context.Context, gitview.FileChange) string {
+		return "diff --git a/a.go b/a.go\n+stale"
+	}
+	model.refreshDiff()
+	cmd := model.ensureSelectedDiffCmd()
+	if cmd == nil {
+		t.Fatal("expected lazy diff command")
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if strings.Contains(got.View().Content, "stale") {
+		t.Fatalf("pending lazy diff survived refresh start: %q", got.View().Content)
+	}
+}
+
 func testModel(t *testing.T) Model {
 	t.Helper()
 	tm, err := theme.Preset("tokyonight")
