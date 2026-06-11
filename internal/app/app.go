@@ -51,21 +51,17 @@ Themes:
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
 	preset, err := theme.Preset(themeName)
+	themeErr := err
 	if err != nil {
 		preset, _ = theme.Preset("tokyonight")
-		return tui.NewModel(tui.Config{
-			ThemeName:  "tokyonight",
-			Theme:      theme.NewStyles(preset),
-			ThemeNames: theme.Names(),
-			Error:      err,
-			Reload: func(ctx context.Context) tui.Snapshot {
-				return loadSnapshot(ctx, repo)
-			},
-		})
 	}
 
 	snapshot := loadSnapshot(ctx, repo)
+	if snapshot.Error == nil {
+		snapshot.Error = themeErr
+	}
 	return tui.NewModel(tui.Config{
+		Context:    ctx,
 		ThemeName:  preset.Name,
 		Theme:      theme.NewStyles(preset),
 		ThemeNames: theme.Names(),

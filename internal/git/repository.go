@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 type Runner interface {
@@ -29,7 +30,12 @@ type Repository struct {
 
 func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 	runner := r.runner()
-	statusOut, err := runner.Run(ctx, r.Dir, "git", "status", "--porcelain=v1", "-z")
+	dir, err := r.root(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	statusOut, err := runner.Run(ctx, dir, "git", "status", "--porcelain=v1", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
@@ -38,7 +44,11 @@ func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 		return nil, err
 	}
 
-	numstatOut, err := runner.Run(ctx, r.Dir, "git", "diff", "--numstat", "-z", "HEAD", "--")
+	if !r.hasHead(ctx, dir) {
+		return changes, nil
+	}
+
+	numstatOut, err := runner.Run(ctx, dir, "git", "diff", "--numstat", "-z", "HEAD", "--")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --numstat: %w", err)
 	}
@@ -53,13 +63,23 @@ func (r Repository) Diff(ctx context.Context, change FileChange) (string, error)
 	if change.Status == Untracked {
 		return fmt.Sprintf("Untracked file: %s\n\nNo diff is available until the file is added to git.", change.Path), nil
 	}
-	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=never", "HEAD", "--"}
+	dir, err := r.root(ctx)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"diff", "--no-ext-diff", "--find-renames", "--color=never"}
+	if r.hasHead(ctx, dir) {
+		args = append(args, "HEAD")
+	} else {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--")
 	if change.Status == Renamed && change.OldPath != "" {
 		args = append(args, change.OldPath, change.Path)
 	} else {
 		args = append(args, change.Path)
 	}
-	out, err := r.runner().Run(ctx, r.Dir, "git", args...)
+	out, err := r.runner().Run(ctx, dir, "git", args...)
 	if err != nil {
 		return "", fmt.Errorf("git diff %s: %w", change.Path, err)
 	}
@@ -70,11 +90,7 @@ func (r Repository) Diff(ctx context.Context, change FileChange) (string, error)
 }
 
 func (r Repository) Root(ctx context.Context) (string, error) {
-	out, err := r.runner().Run(ctx, r.Dir, "git", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
-	}
-	return trimTrailingNewline(out), nil
+	return r.root(ctx)
 }
 
 func (r Repository) runner() Runner {
@@ -84,9 +100,19 @@ func (r Repository) runner() Runner {
 	return ExecRunner{}
 }
 
-func trimTrailingNewline(s string) string {
-	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
-		s = s[:len(s)-1]
+func (r Repository) root(ctx context.Context) (string, error) {
+	out, err := r.runner().Run(ctx, r.Dir, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
 	}
-	return s
+	return trimTrailingNewline(out), nil
+}
+
+func (r Repository) hasHead(ctx context.Context, dir string) bool {
+	_, err := r.runner().Run(ctx, dir, "git", "rev-parse", "--verify", "HEAD")
+	return err == nil
+}
+
+func trimTrailingNewline(s string) string {
+	return strings.TrimRight(s, "\r\n")
 }

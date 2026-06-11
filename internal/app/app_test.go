@@ -68,3 +68,15 @@ func TestLoadModelRendersGitError(t *testing.T) {
 		t.Fatalf("LoadModel error view = %q", view)
 	}
 }
+
+func TestLoadModelKeepsDataWhenThemeIsInvalid(t *testing.T) {
+	model := LoadModel(context.Background(), fakeRepo{
+		changes: []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
+		diffs:   map[string]string{"main.go": "diff --git a/main.go b/main.go\n+package main"},
+	}, "not-a-theme")
+
+	view := model.View().Content
+	if !strings.Contains(view, "main.go") || !strings.Contains(view, "unknown theme") {
+		t.Fatalf("LoadModel invalid theme view = %q", view)
+	}
+}

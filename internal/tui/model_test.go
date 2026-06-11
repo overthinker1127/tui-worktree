@@ -31,6 +31,11 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 			t.Fatalf("View() missing %q in %q", want, view)
 		}
 	}
+	for _, want := range []string{"󰈙", ""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing Nerd Font symbol %q in %q", want, view)
+		}
+	}
 }
 
 func TestModelMovesSelectionDown(t *testing.T) {
@@ -60,10 +65,13 @@ func TestQuestionMarkTogglesHelp(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	view := next.(Model).View().Content
 
-	for _, want := range []string{"Help", "r refresh", "t themes", "mouse select"} {
+	for _, want := range []string{"Help", " r refresh", " t themes"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q in %q", want, view)
 		}
+	}
+	if strings.Contains(view, "mouse select") {
+		t.Fatalf("help view should not explain mouse selection: %q", view)
 	}
 }
 
@@ -104,6 +112,25 @@ func TestRefreshReloadsChanges(t *testing.T) {
 	if !strings.Contains(got.View().Content, "fresh") {
 		t.Fatalf("View() missing refreshed diff: %q", got.View().Content)
 	}
+}
+
+func TestRefreshUsesConfiguredContext(t *testing.T) {
+	model := testModel(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	model.context = ctx
+	model.reload = func(ctx context.Context) Snapshot {
+		if ctx.Err() == nil {
+			t.Fatal("reload context was not canceled")
+		}
+		return Snapshot{}
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	if cmd == nil {
+		t.Fatal("refresh command is nil")
+	}
+	_ = cmd()
 }
 
 func TestMouseClickSelectsFile(t *testing.T) {
