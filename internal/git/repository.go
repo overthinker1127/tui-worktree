@@ -111,6 +111,29 @@ func (r Repository) Worktrees(ctx context.Context) ([]Worktree, error) {
 	return worktrees, nil
 }
 
+func (r Repository) DeleteWorktree(ctx context.Context, worktree Worktree) error {
+	if worktree.Protected || IsProtectedBranch(worktree.Branch) {
+		return fmt.Errorf("protected branch %q cannot be deleted", worktree.Branch)
+	}
+	if worktree.Path == "" {
+		return fmt.Errorf("delete worktree: missing path")
+	}
+	root, err := r.root(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := r.runner().Run(ctx, root, "git", "worktree", "remove", "--force", worktree.Path); err != nil {
+		return fmt.Errorf("git worktree remove %s: %w", worktree.Path, err)
+	}
+	if worktree.Branch == "" || worktree.Branch == "detached" {
+		return nil
+	}
+	if _, err := r.runner().Run(ctx, root, "git", "branch", "-D", worktree.Branch); err != nil {
+		return fmt.Errorf("git branch -D %s: %w", worktree.Branch, err)
+	}
+	return nil
+}
+
 func (r Repository) defaultBranch(ctx context.Context, root string, worktrees []Worktree) string {
 	out, err := r.runner().Run(ctx, root, "git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	if err == nil {
@@ -154,8 +177,16 @@ func inferDefaultBranch(worktrees []Worktree) string {
 func markProtectedWorktrees(worktrees []Worktree, defaultBranch string) {
 	for i := range worktrees {
 		worktrees[i].DefaultBranch = defaultBranch != "" && worktrees[i].Branch == defaultBranch
-		worktrees[i].Protected = worktrees[i].Primary || worktrees[i].DefaultBranch
+		worktrees[i].Protected = worktrees[i].Primary || worktrees[i].Current || worktrees[i].DefaultBranch || IsProtectedBranch(worktrees[i].Branch)
 	}
+}
+
+func IsProtectedBranch(branch string) bool {
+	switch branch {
+	case "main", "master", "develop", "dev", "production", "staging":
+		return true
+	}
+	return strings.HasPrefix(branch, "release/") || strings.HasPrefix(branch, "hotfix/")
 }
 
 func (r Repository) runner() Runner {

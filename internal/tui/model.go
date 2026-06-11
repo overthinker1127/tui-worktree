@@ -31,6 +31,7 @@ type Config struct {
 	Diffs            map[string]string
 	Error            error
 	LoadDiff         func(context.Context, string, gitview.FileChange) string
+	DeleteWorktree   func(context.Context, gitview.Worktree) error
 	Reload           func(context.Context, string) Snapshot
 	SaveTheme        func(string) error
 }
@@ -60,13 +61,14 @@ const (
 	iconUntracked = ""
 	iconBinary    = ""
 	iconTheme     = ""
-	iconHelp      = "󰋖"
 	iconQuit      = "󰩈"
 	iconKey       = "󰌌"
 	iconEdit      = ""
 	iconWrap      = "󰖶"
 	iconNumbers   = "󰎠"
 	iconProtected = ""
+	iconPR        = ""
+	iconMerge     = ""
 	iconStatus    = "󰎟"
 	iconSelected  = "▸"
 )
@@ -104,10 +106,11 @@ type Model struct {
 	err               error
 	toast             string
 	toastID           int
-	showHelp          bool
 	pickingTheme      bool
+	confirmDelete     bool
 	focusedPane       focusedPane
 	loadDiff          func(context.Context, string, gitview.FileChange) string
+	deleteWorktree    func(context.Context, gitview.Worktree) error
 	reload            func(context.Context, string) Snapshot
 	saveTheme         func(string) error
 	viewport          viewport.Model
@@ -127,6 +130,7 @@ func NewModel(cfg Config) Model {
 		diffs:            cfg.Diffs,
 		err:              cfg.Error,
 		loadDiff:         cfg.LoadDiff,
+		deleteWorktree:   cfg.DeleteWorktree,
 		reload:           cfg.Reload,
 		saveTheme:        cfg.SaveTheme,
 		viewport:         vp,
@@ -185,6 +189,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.showToast(fmt.Sprintf("editor failed: %s", msg.err))
 		}
 		return m, nil
+	case deleteWorktreeFinishedMsg:
+		m.confirmDelete = false
+		if msg.err != nil {
+			return m, m.showToast(fmt.Sprintf("delete failed: %s", msg.err))
+		}
+		m.removeWorktree(msg.worktree.Path)
+		cmds := []tea.Cmd{m.showToast(fmt.Sprintf("deleted %s", worktreeLabel(msg.worktree)))}
+		if m.reload != nil {
+			m.refreshGeneration++
+			cmds = append(cmds, m.reloadCmd(m.refreshGeneration, m.SelectedWorktree().Path))
+		}
+		return m, tea.Batch(cmds...)
 	case diffLoadedMsg:
 		if msg.revision != m.revision {
 			return m, nil
@@ -218,15 +234,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 	case tea.KeyPressMsg:
-		if m.showHelp {
-			switch msg.String() {
-			case "?", "esc":
-				m.showHelp = false
-				return m, nil
-			case "ctrl+c", "q":
-				return m, tea.Quit
-			}
-			return m, nil
+		if m.confirmDelete {
+			return m.handleDeleteConfirmKey(msg)
 		}
 		if m.pickingTheme {
 			return m.handleThemeKey(msg)
@@ -240,8 +249,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.focusPreviousPane()
 			return m, nil
-		case "?":
-			m.showHelp = true
 		case "t":
 			m.openThemePicker()
 		case "w":
@@ -250,6 +257,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toggleLineNumbers()
 		case "e":
 			return m, m.openSelectedFileInEditor()
+		case "d":
+			return m, m.openDeleteConfirm()
 		case "tab":
 			m.moveWorktree(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -344,8 +353,8 @@ func (m Model) View() tea.View {
 	footer := m.renderFooter()
 	if m.pickingTheme {
 		body = m.renderOverlay(body, m.renderThemePicker())
-	} else if m.showHelp {
-		body = m.renderOverlay(body, m.renderHelp())
+	} else if m.confirmDelete {
+		body = m.renderOverlay(body, m.renderDeleteConfirm())
 	}
 	body = m.renderToast(body)
 
@@ -361,14 +370,32 @@ func (m Model) footerText() string {
 	segments := []string{
 		m.footerHint(iconKey, "1/2/3", "panels"),
 		m.footerHint(iconWorktree, "tab", "worktree"),
-		m.footerHint(iconFile, "hjkl", "move"),
-		m.footerHint(iconEdit, "e", "edit"),
-		m.footerHint(iconWrap, "w", "wrap"),
-		m.footerHint(iconNumbers, "n", "nums"),
-		m.footerHint(iconTheme, "t", "themes"),
-		m.footerHint(iconHelp, "?", "help"),
-		m.footerHint(iconQuit, "q", "quit"),
 	}
+	switch m.focusedPane {
+	case paneWorktrees:
+		segments = append(segments,
+			m.footerHint(iconFile, "hjkl", "move"),
+			m.footerHint(iconDeleted, "d", "delete"),
+			m.footerHint(iconPR, "p", "PR"),
+			m.footerHint(iconMerge, "m", "merge"),
+		)
+	case paneDiff:
+		segments = append(segments,
+			m.footerHint(iconFile, "hjkl", "scroll"),
+			m.footerHint(iconEdit, "e", "edit"),
+			m.footerHint(iconWrap, "w", "wrap"),
+			m.footerHint(iconNumbers, "n", "nums"),
+		)
+	default:
+		segments = append(segments,
+			m.footerHint(iconFile, "hjkl", "move"),
+			m.footerHint(iconEdit, "e", "edit"),
+		)
+	}
+	segments = append(segments,
+		m.footerHint(iconTheme, "t", "themes"),
+		m.footerHint(iconQuit, "q", "quit"),
+	)
 	return strings.Join(segments, m.styles.Footer.Render(" │ "))
 }
 
@@ -591,6 +618,45 @@ func (m *Model) openThemePicker() {
 	}
 }
 
+func (m *Model) openDeleteConfirm() tea.Cmd {
+	worktree := m.SelectedWorktree()
+	if worktree.Path == "" {
+		return m.showToast("no worktree selected")
+	}
+	if worktree.Protected || gitview.IsProtectedBranch(worktree.Branch) {
+		return m.showToast(fmt.Sprintf("protected branch %s cannot be deleted", worktreeLabel(worktree)))
+	}
+	m.confirmDelete = true
+	m.focusedPane = paneWorktrees
+	return nil
+}
+
+func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y", "enter":
+		return m, m.deleteSelectedWorktreeCmd()
+	case "n", "N", "esc", "d":
+		m.confirmDelete = false
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) deleteSelectedWorktreeCmd() tea.Cmd {
+	worktree := m.SelectedWorktree()
+	if m.deleteWorktree == nil {
+		return func() tea.Msg {
+			return deleteWorktreeFinishedMsg{worktree: worktree, err: fmt.Errorf("delete worktree is not configured")}
+		}
+	}
+	return func() tea.Msg {
+		return deleteWorktreeFinishedMsg{worktree: worktree, err: m.deleteWorktree(m.context, worktree)}
+	}
+}
+
 func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg.String() {
@@ -762,6 +828,24 @@ func (m *Model) selectWorktree(index int) {
 	m.err = m.worktrees[index].Error
 	m.selected = 0
 	m.refreshDiff()
+}
+
+func (m *Model) removeWorktree(path string) {
+	if path == "" {
+		return
+	}
+	for i, state := range m.worktrees {
+		if state.Worktree.Path != path {
+			continue
+		}
+		m.worktrees = append(m.worktrees[:i], m.worktrees[i+1:]...)
+		if m.selectedWorktree >= len(m.worktrees) {
+			m.selectedWorktree = max(0, len(m.worktrees)-1)
+		}
+		m.normalizeWorktrees()
+		m.refreshDiff()
+		return
+	}
 }
 
 func (m *Model) resizeViewport() {
@@ -1019,22 +1103,15 @@ func (m Model) listFill(text string) string {
 	return listFill(m.styles, text)
 }
 
-func (m Model) renderHelp() string {
+func (m Model) renderDeleteConfirm() string {
+	worktree := m.SelectedWorktree()
 	lines := []string{
-		m.styles.Title.Render(iconHelp + " Help"),
-		"1/2/3: focus panels",
-		"tab / shift+tab: switch worktree",
-		"h/l or left/right: scroll focused list horizontally",
-		"j/k or up/down: move focused list",
-		"e: open selected file in $EDITOR",
-		"w: toggle diff wrap",
-		"n: toggle diff line numbers",
-		"auto-refresh: reload git worktree changes every 5s",
-		iconTheme + " t themes: open theme picker",
-		iconHelp + " ?: toggle this help",
-		iconQuit + " q/esc: quit or close overlay",
+		m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(44).Render(iconDeleted + " Delete worktree?"),
+		m.styles.Diff.Width(44).Render(worktreeLabel(worktree)),
+		m.styles.Diff.Width(44).Render("remove worktree and delete branch"),
+		m.styles.Diff.Width(44).Render("y/enter yes   n/esc no"),
 	}
-	return m.overlayPanelStyle().Width(min(m.width-2, 72)).Render(strings.Join(lines, "\n"))
+	return m.overlayPanelStyle().Width(50).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderThemePicker() string {
@@ -1381,10 +1458,7 @@ func (m Model) diffKey(change gitview.FileChange) string {
 
 func renderWorktreeLine(styles theme.Styles, _ int, state WorktreeState) string {
 	worktree := state.Worktree
-	name := worktree.Branch
-	if name == "" {
-		name = worktree.Path
-	}
+	name := worktreeLabel(worktree)
 	marker := " "
 	if worktree.Current {
 		marker = "•"
@@ -1408,6 +1482,13 @@ func listStyle(styles theme.Styles, style lipgloss.Style) lipgloss.Style {
 
 func listFill(styles theme.Styles, text string) string {
 	return lipgloss.NewStyle().Background(styles.Panel.GetBackground()).Render(text)
+}
+
+func worktreeLabel(worktree gitview.Worktree) string {
+	if worktree.Branch != "" {
+		return worktree.Branch
+	}
+	return worktree.Path
 }
 
 func panelInnerWidth(width int) int {
@@ -1522,6 +1603,11 @@ type toastExpiredMsg struct {
 
 type editorFinishedMsg struct {
 	err error
+}
+
+type deleteWorktreeFinishedMsg struct {
+	worktree gitview.Worktree
+	err      error
 }
 
 type diffLoadedMsg struct {

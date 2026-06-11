@@ -30,6 +30,10 @@ type WorktreeRepository interface {
 	Worktrees(context.Context) ([]gitview.Worktree, error)
 }
 
+type DeleteWorktreeRepository interface {
+	DeleteWorktree(context.Context, gitview.Worktree) error
+}
+
 func ParseArgs(args []string) (Options, error) {
 	fs := flag.NewFlagSet("tui-worktree", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -87,6 +91,12 @@ func loadModel(ctx context.Context, repo Repository, themeName string, width, he
 		},
 		Reload: func(ctx context.Context, selectedWorktreePath string) tui.Snapshot {
 			return loadSnapshot(ctx, repo, selectedWorktreePath)
+		},
+		DeleteWorktree: func(ctx context.Context, worktree gitview.Worktree) error {
+			if deleteRepo, ok := repo.(DeleteWorktreeRepository); ok {
+				return deleteRepo.DeleteWorktree(ctx, worktree)
+			}
+			return fmt.Errorf("delete worktree is not supported")
 		},
 		SaveTheme: func(name string) error {
 			return SaveConfig(UserConfig{Theme: name})

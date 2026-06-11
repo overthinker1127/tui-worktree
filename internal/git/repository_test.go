@@ -107,3 +107,39 @@ func TestRepositoryWorktrees(t *testing.T) {
 		t.Fatalf("Worktrees() = %#v, want %#v", got, want)
 	}
 }
+
+func TestRepositoryDeleteWorktreeRemovesWorktreeThenBranch(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"git rev-parse --show-toplevel": "/repo\n",
+	}}
+	repo := Repository{Runner: runner}
+
+	err := repo.DeleteWorktree(context.Background(), Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"})
+	if err != nil {
+		t.Fatalf("DeleteWorktree() error = %v", err)
+	}
+
+	want := []string{
+		"git rev-parse --show-toplevel",
+		"git worktree remove --force /repo/.worktrees/feature",
+		"git branch -D feature",
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestRepositoryDeleteWorktreeRejectsProtectedBranches(t *testing.T) {
+	for _, branch := range []string{"main", "master", "develop", "dev", "release/1.0", "hotfix/login", "production", "staging"} {
+		runner := &fakeRunner{}
+		repo := Repository{Runner: runner}
+
+		err := repo.DeleteWorktree(context.Background(), Worktree{Path: "/repo/.worktrees/" + branch, Branch: branch})
+		if err == nil || !strings.Contains(err.Error(), "protected branch") {
+			t.Fatalf("DeleteWorktree(%q) error = %v, want protected branch", branch, err)
+		}
+		if len(runner.calls) != 0 {
+			t.Fatalf("DeleteWorktree(%q) commands = %#v, want none", branch, runner.calls)
+		}
+	}
+}
