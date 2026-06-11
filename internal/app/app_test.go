@@ -58,7 +58,7 @@ func TestLoadModelRendersRepositoryData(t *testing.T) {
 }
 
 func TestLoadModelRendersGitError(t *testing.T) {
-	model := LoadModel(context.Background(), fakeRepo{err: errors.New("not a git repository")}, "dark")
+	model := LoadModel(context.Background(), fakeRepo{err: errors.New("not a git repository")}, "tokyonight")
 
 	view := model.View().Content
 	if !strings.Contains(view, "not a git repository") {

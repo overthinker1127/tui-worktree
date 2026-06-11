@@ -16,14 +16,30 @@ go run ./cmd/worktree-diff-tui --repo . --theme kanagawa
 
 ## Themes
 
-- `dark`
-- `light`
 - `tokyonight`
 - `tokyonight-night`
 - `tokyonight-storm`
 - `kanagawa`
 - `kanagawa-wave`
 - `kanagawa-dragon`
+- `catppuccin`
+- `catppuccin-mocha`
+- `catppuccin-macchiato`
+- `gruvbox`
+- `gruvbox-dark`
+- `solarized`
+- `solarized-dark`
+- `nord`
+- `dracula`
+- `rose-pine`
+- `rose-pine-moon`
+- `one-dark`
+- `vscode`
+- `vscode-dark`
+- `monokai`
+- `everforest`
+- `ayu`
+- `ayu-mirage`
 
 ## Keys
 
@@ -31,6 +47,10 @@ go run ./cmd/worktree-diff-tui --repo . --theme kanagawa
 - `k` / `up`: previous file
 - `g` / `home`: first file
 - `G` / `end`: last file
+- `r`: refresh worktree changes
+- `t`: open theme picker
+- `?`: toggle help
+- mouse click: select files or theme entries
 - `q` / `esc` / `ctrl+c`: quit
 
 ## Manual Smoke Test

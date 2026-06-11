@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,13 +19,6 @@ type Options struct {
 	Theme string
 }
 
-const usage = `Usage:
-  tui-worktree [--repo PATH] [--theme NAME]
-
-Themes:
-  dark, light, tokyonight, tokyonight-night, tokyonight-storm, kanagawa, kanagawa-wave, kanagawa-dragon
-`
-
 type Repository interface {
 	Changes(context.Context) ([]gitview.FileChange, error)
 	Diff(context.Context, gitview.FileChange) (string, error)
@@ -36,7 +30,7 @@ func ParseArgs(args []string) (Options, error) {
 
 	opts := Options{Dir: ".", Theme: "tokyonight"}
 	fs.StringVar(&opts.Dir, "repo", opts.Dir, "repository path")
-	fs.StringVar(&opts.Theme, "theme", opts.Theme, "theme preset: dark, light, tokyonight, tokyonight-storm, kanagawa, kanagawa-dragon")
+	fs.StringVar(&opts.Theme, "theme", opts.Theme, "theme preset: "+strings.Join(theme.Names(), ", "))
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
 	}
@@ -44,7 +38,12 @@ func ParseArgs(args []string) (Options, error) {
 }
 
 func Usage() string {
-	return usage
+	return fmt.Sprintf(`Usage:
+  tui-worktree [--repo PATH] [--theme NAME]
+
+Themes:
+  %s
+`, strings.Join(theme.Names(), ", "))
 }
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
@@ -52,17 +51,34 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 	if err != nil {
 		preset, _ = theme.Preset("tokyonight")
 		return tui.NewModel(tui.Config{
-			Theme: theme.NewStyles(preset),
-			Error: err,
+			ThemeName:  "tokyonight",
+			Theme:      theme.NewStyles(preset),
+			ThemeNames: theme.Names(),
+			Error:      err,
+			Reload: func(ctx context.Context) tui.Snapshot {
+				return loadSnapshot(ctx, repo)
+			},
 		})
 	}
 
+	snapshot := loadSnapshot(ctx, repo)
+	return tui.NewModel(tui.Config{
+		ThemeName:  preset.Name,
+		Theme:      theme.NewStyles(preset),
+		ThemeNames: theme.Names(),
+		Changes:    snapshot.Changes,
+		Diffs:      snapshot.Diffs,
+		Error:      snapshot.Error,
+		Reload: func(ctx context.Context) tui.Snapshot {
+			return loadSnapshot(ctx, repo)
+		},
+	})
+}
+
+func loadSnapshot(ctx context.Context, repo Repository) tui.Snapshot {
 	changes, err := repo.Changes(ctx)
 	if err != nil {
-		return tui.NewModel(tui.Config{
-			Theme: theme.NewStyles(preset),
-			Error: err,
-		})
+		return tui.Snapshot{Error: err}
 	}
 
 	diffs := make(map[string]string, len(changes))
@@ -73,12 +89,7 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 		}
 		diffs[change.Path] = diff
 	}
-
-	return tui.NewModel(tui.Config{
-		Theme:   theme.NewStyles(preset),
-		Changes: changes,
-		Diffs:   diffs,
-	})
+	return tui.Snapshot{Changes: changes, Diffs: diffs}
 }
 
 func Run(ctx context.Context, opts Options) error {
