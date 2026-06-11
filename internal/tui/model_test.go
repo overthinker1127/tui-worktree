@@ -165,6 +165,54 @@ func TestMouseClickSelectsTheme(t *testing.T) {
 	}
 }
 
+func TestFileListWindowsLargeChangeSets(t *testing.T) {
+	model := testModel(t)
+	model.width = 90
+	model.height = 9
+	model.changes = make([]gitview.FileChange, 20)
+	model.diffs = map[string]string{}
+	for i := range model.changes {
+		model.changes[i] = gitview.FileChange{Path: "file-" + string(rune('a'+i)) + ".go", Status: gitview.Modified}
+	}
+	model.refreshDiff()
+
+	firstView := model.View().Content
+	if strings.Contains(firstView, "file-t.go") {
+		t.Fatalf("initial view included offscreen file: %q", firstView)
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
+	lastView := next.(Model).View().Content
+	if !strings.Contains(lastView, "file-t.go") || strings.Contains(lastView, "file-a.go") {
+		t.Fatalf("last view did not window around selected file: %q", lastView)
+	}
+}
+
+func TestSelectionLoadsMissingDiffLazily(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Modified},
+	}
+	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
+	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
+	}
+	model.refreshDiff()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	if cmd == nil {
+		t.Fatal("selection change did not request lazy diff load")
+	}
+	msg := cmd()
+	next, _ = next.(Model).Update(msg)
+	got := next.(Model)
+
+	if !strings.Contains(got.View().Content, "+b") {
+		t.Fatalf("View() missing lazily loaded diff: %q", got.View().Content)
+	}
+}
+
 func testModel(t *testing.T) Model {
 	t.Helper()
 	tm, err := theme.Preset("tokyonight")

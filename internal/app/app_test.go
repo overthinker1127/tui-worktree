@@ -13,16 +13,18 @@ type fakeRepo struct {
 	changes []gitview.FileChange
 	diffs   map[string]string
 	err     error
+	calls   []string
 }
 
-func (f fakeRepo) Changes(context.Context) ([]gitview.FileChange, error) {
+func (f *fakeRepo) Changes(context.Context) ([]gitview.FileChange, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.changes, nil
 }
 
-func (f fakeRepo) Diff(_ context.Context, change gitview.FileChange) (string, error) {
+func (f *fakeRepo) Diff(_ context.Context, change gitview.FileChange) (string, error) {
+	f.calls = append(f.calls, change.Path)
 	return f.diffs[change.Path], nil
 }
 
@@ -49,10 +51,11 @@ func TestUsageMentionsThemes(t *testing.T) {
 }
 
 func TestLoadModelRendersRepositoryData(t *testing.T) {
-	model := LoadModel(context.Background(), fakeRepo{
+	repo := &fakeRepo{
 		changes: []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
 		diffs:   map[string]string{"main.go": "diff --git a/main.go b/main.go\n+package main"},
-	}, "tokyonight")
+	}
+	model := LoadModel(context.Background(), repo, "tokyonight")
 
 	view := model.View().Content
 	if !strings.Contains(view, "main.go") || !strings.Contains(view, "diff --git") {
@@ -60,8 +63,27 @@ func TestLoadModelRendersRepositoryData(t *testing.T) {
 	}
 }
 
+func TestLoadModelLoadsOnlySelectedDiffInitially(t *testing.T) {
+	repo := &fakeRepo{
+		changes: []gitview.FileChange{
+			{Path: "a.go", Status: gitview.Modified},
+			{Path: "b.go", Status: gitview.Modified},
+		},
+		diffs: map[string]string{
+			"a.go": "diff --git a/a.go b/a.go\n+a",
+			"b.go": "diff --git a/b.go b/b.go\n+b",
+		},
+	}
+
+	_ = LoadModel(context.Background(), repo, "tokyonight")
+
+	if len(repo.calls) != 1 || repo.calls[0] != "a.go" {
+		t.Fatalf("Diff calls = %#v, want only selected file", repo.calls)
+	}
+}
+
 func TestLoadModelRendersGitError(t *testing.T) {
-	model := LoadModel(context.Background(), fakeRepo{err: errors.New("not a git repository")}, "tokyonight")
+	model := LoadModel(context.Background(), &fakeRepo{err: errors.New("not a git repository")}, "tokyonight")
 
 	view := model.View().Content
 	if !strings.Contains(view, "not a git repository") {
@@ -70,7 +92,7 @@ func TestLoadModelRendersGitError(t *testing.T) {
 }
 
 func TestLoadModelKeepsDataWhenThemeIsInvalid(t *testing.T) {
-	model := LoadModel(context.Background(), fakeRepo{
+	model := LoadModel(context.Background(), &fakeRepo{
 		changes: []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
 		diffs:   map[string]string{"main.go": "diff --git a/main.go b/main.go\n+package main"},
 	}, "not-a-theme")

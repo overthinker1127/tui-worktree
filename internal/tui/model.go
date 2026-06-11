@@ -22,6 +22,7 @@ type Config struct {
 	Diff       string
 	Diffs      map[string]string
 	Error      error
+	LoadDiff   func(context.Context, gitview.FileChange) string
 	Reload     func(context.Context) Snapshot
 }
 
@@ -60,6 +61,7 @@ type Model struct {
 	status       string
 	showHelp     bool
 	pickingTheme bool
+	loadDiff     func(context.Context, gitview.FileChange) string
 	reload       func(context.Context) Snapshot
 	viewport     viewport.Model
 }
@@ -75,6 +77,7 @@ func NewModel(cfg Config) Model {
 		changes:    cfg.Changes,
 		diffs:      cfg.Diffs,
 		err:        cfg.Error,
+		loadDiff:   cfg.LoadDiff,
 		reload:     cfg.Reload,
 		viewport:   vp,
 		width:      100,
@@ -108,6 +111,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case reloadMsg:
 		m.applySnapshot(msg.snapshot)
+		return m, m.ensureSelectedDiffCmd()
+	case diffLoadedMsg:
+		if msg.path != "" {
+			m.diffs[msg.path] = msg.diff
+			if selected := m.Selected(); selected.Path == msg.path {
+				m.refreshDiff()
+			}
+		}
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -141,15 +152,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.reloadCmd()
 		case "j", "down":
 			m.moveSelection(1)
+			return m, m.ensureSelectedDiffCmd()
 		case "k", "up":
 			m.moveSelection(-1)
+			return m, m.ensureSelectedDiffCmd()
 		case "g", "home":
 			m.selected = 0
 			m.refreshDiff()
+			return m, m.ensureSelectedDiffCmd()
 		case "G", "end":
 			if len(m.changes) > 0 {
 				m.selected = len(m.changes) - 1
 				m.refreshDiff()
+				return m, m.ensureSelectedDiffCmd()
 			}
 		}
 	}
@@ -269,7 +284,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) {
 	if mouse.X >= leftWidth || mouse.Y < 3 {
 		return
 	}
-	index := mouse.Y - 3
+	index := m.listOffset(m.height-4) + mouse.Y - 3
 	if index >= 0 && index < len(m.changes) {
 		m.selected = index
 		m.refreshDiff()
@@ -285,6 +300,25 @@ func (m Model) reloadCmd() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return reloadMsg{snapshot: reload(m.context)}
+	}
+}
+
+func (m Model) ensureSelectedDiffCmd() tea.Cmd {
+	if m.loadDiff == nil {
+		return nil
+	}
+	selected := m.Selected()
+	if selected.Path == "" {
+		return nil
+	}
+	if _, ok := m.diffs[selected.Path]; ok {
+		return nil
+	}
+	return func() tea.Msg {
+		return diffLoadedMsg{
+			path: selected.Path,
+			diff: m.loadDiff(m.context, selected),
+		}
 	}
 }
 
@@ -323,9 +357,13 @@ func (m *Model) refreshDiff() {
 func (m Model) renderFiles(width, height int) string {
 	lines := make([]string, 0, len(m.changes)+1)
 	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d files", iconFile, len(m.changes))))
-	for i, change := range m.changes {
+	visibleRows := max(1, height-4)
+	offset := m.listOffset(height)
+	end := min(len(m.changes), offset+visibleRows)
+	for i, change := range m.changes[offset:end] {
+		index := offset + i
 		line := renderFileLine(m.styles, change)
-		if i == m.selected {
+		if index == m.selected {
 			line = m.styles.FileSelected.Width(max(1, width-4)).Render(line)
 		} else {
 			line = m.styles.FileItem.Width(max(1, width-4)).Render(line)
@@ -334,8 +372,26 @@ func (m Model) renderFiles(width, height int) string {
 	}
 	if len(m.changes) == 0 {
 		lines = append(lines, m.styles.Muted.Render("No changed files"))
+	} else if end < len(m.changes) {
+		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
 	}
 	return m.styles.PanelFocused.Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) listOffset(height int) int {
+	if len(m.changes) == 0 {
+		return 0
+	}
+	visibleRows := max(1, height-4)
+	if m.selected < visibleRows {
+		return 0
+	}
+	offset := m.selected - visibleRows + 1
+	maxOffset := max(0, len(m.changes)-visibleRows)
+	if offset > maxOffset {
+		return maxOffset
+	}
+	return offset
 }
 
 func (m Model) renderDiff(width, height int) string {
@@ -453,4 +509,9 @@ func indexOf(items []string, want string) int {
 
 type reloadMsg struct {
 	snapshot Snapshot
+}
+
+type diffLoadedMsg struct {
+	path string
+	diff string
 }

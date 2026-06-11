@@ -68,6 +68,9 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 		Changes:    snapshot.Changes,
 		Diffs:      snapshot.Diffs,
 		Error:      snapshot.Error,
+		LoadDiff: func(ctx context.Context, change gitview.FileChange) string {
+			return loadDiff(ctx, repo, change)
+		},
 		Reload: func(ctx context.Context) tui.Snapshot {
 			return loadSnapshot(ctx, repo)
 		},
@@ -80,15 +83,26 @@ func loadSnapshot(ctx context.Context, repo Repository) tui.Snapshot {
 		return tui.Snapshot{Error: err}
 	}
 
-	diffs := make(map[string]string, len(changes))
-	for _, change := range changes {
-		diff, err := repo.Diff(ctx, change)
-		if err != nil {
-			diff = fmt.Sprintf("Could not load diff for %s:\n%s", change.Path, err)
-		}
-		diffs[change.Path] = diff
+	diffs := make(map[string]string, min(1, len(changes)))
+	if len(changes) > 0 {
+		diffs[changes[0].Path] = loadDiff(ctx, repo, changes[0])
 	}
 	return tui.Snapshot{Changes: changes, Diffs: diffs}
+}
+
+func loadDiff(ctx context.Context, repo Repository, change gitview.FileChange) string {
+	diff, err := repo.Diff(ctx, change)
+	if err != nil {
+		return fmt.Sprintf("Could not load diff for %s:\n%s", change.Path, err)
+	}
+	return diff
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func Run(ctx context.Context, opts Options) error {
