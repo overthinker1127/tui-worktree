@@ -503,7 +503,7 @@ func (m *Model) refreshDiff() {
 
 func (m Model) renderWorktrees(width, height int) string {
 	lines := make([]string, 0, len(m.worktrees)+1)
-	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d worktrees", iconWorktree, len(m.worktrees))))
+	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("[1]-%s %d worktrees", iconWorktree, len(m.worktrees))))
 	contentWidth := panelInnerWidth(width)
 	visibleRows := max(1, panelInnerHeight(height)-2)
 	offset := m.worktreeListOffset(height)
@@ -543,7 +543,7 @@ func (m Model) worktreeListOffset(height int) int {
 
 func (m Model) renderFiles(width, height int) string {
 	lines := make([]string, 0, len(m.changes)+1)
-	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d files", iconFile, len(m.changes))))
+	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("[2]-%s %d files", iconFile, len(m.changes))))
 	contentWidth := panelInnerWidth(width)
 	visibleRows := max(1, panelInnerHeight(height)-2)
 	offset := m.listOffset(height)
@@ -584,9 +584,9 @@ func (m Model) listOffset(height int) int {
 }
 
 func (m Model) renderDiff(width, height int) string {
-	selected := iconFile + " Diff"
+	selected := "[3]-" + iconFile + " Diff"
 	if change := m.Selected(); change.Path != "" {
-		selected = change.Path
+		selected = "[3]-" + change.Path
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, m.styles.Header.Render(selected), m.viewport.View())
 	return m.styles.Panel.Width(panelInnerWidth(width)).Height(panelInnerHeight(height)).Render(content)
