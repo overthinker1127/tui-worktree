@@ -1150,7 +1150,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 		m.focusedPane = paneDiff
 		return false, nil
 	}
-	if mouse.Y < 2 {
+	if mouse.Y < 1 {
 		return false, nil
 	}
 	contentHeight := m.bodyHeight()

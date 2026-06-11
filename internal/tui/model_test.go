@@ -1750,6 +1750,32 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	}
 }
 
+func TestMouseClickSelectsFirstWorktree(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "feature.go", Status: gitview.Added}},
+		},
+	}
+	model.selectedWorktree = 1
+	model.normalizeWorktrees()
+
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 1}))
+	got := next.(Model)
+
+	if got.selectedWorktree != 0 {
+		t.Fatalf("selectedWorktree = %d, want 0", got.selectedWorktree)
+	}
+	if got.SelectedWorktree().Branch != "main" {
+		t.Fatalf("SelectedWorktree() = %q, want main", got.SelectedWorktree().Branch)
+	}
+}
+
 func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 	model := testModel(t)
 	model.changes = []gitview.FileChange{
