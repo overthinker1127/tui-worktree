@@ -1447,6 +1447,53 @@ func TestAutoRefreshReloadsChanges(t *testing.T) {
 	}
 }
 
+func TestAutoRefreshPreservesSelectedFileWhenNewFileIsAdded(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Modified},
+	}
+	model.worktrees[model.selectedWorktree].Changes = model.changes
+	model.selected = 1
+	model.refreshDiff()
+	model.reload = func(context.Context, string) Snapshot {
+		changes := []gitview.FileChange{
+			{Path: "new.go", Status: gitview.Added},
+			{Path: "a.go", Status: gitview.Modified},
+			{Path: "b.go", Status: gitview.Modified},
+		}
+		return Snapshot{
+			Worktrees: []WorktreeState{{
+				Worktree: model.SelectedWorktree(),
+				Changes:  changes,
+			}},
+			SelectedWorktree: 0,
+			Changes:          changes,
+			Diffs: map[string]string{
+				model.SelectedWorktree().Path + "\x00" + "b.go": "diff --git a/b.go b/b.go\n+b",
+			},
+		}
+	}
+
+	next, cmd := model.Update(autoRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("auto-refresh command is nil")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("auto-refresh command = %#v, want batch", cmd())
+	}
+	next, _ = next.(Model).Update(batch[0]())
+	got := next.(Model)
+
+	if got.Selected().Path != "b.go" {
+		t.Fatalf("Selected() = %q, want b.go", got.Selected().Path)
+	}
+	if !strings.Contains(got.View().Content, "+b") {
+		t.Fatalf("View() should keep selected file diff: %q", got.View().Content)
+	}
+}
+
 func TestAutoRefreshUsesConfiguredContext(t *testing.T) {
 	model := testModel(t)
 	ctx, cancel := context.WithCancel(context.Background())

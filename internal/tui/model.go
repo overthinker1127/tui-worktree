@@ -1183,6 +1183,8 @@ func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 }
 
 func (m *Model) applySnapshot(snapshot Snapshot) {
+	selected := m.Selected()
+	selectedIndex := m.selected
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
@@ -1190,7 +1192,11 @@ func (m *Model) applySnapshot(snapshot Snapshot) {
 	m.diffs = snapshot.Diffs
 	m.err = snapshot.Error
 	m.normalizeWorktrees()
-	m.selected = min(m.selected, max(0, len(m.changes)-1))
+	if index := changeIndex(m.changes, selected); index >= 0 {
+		m.selected = index
+	} else {
+		m.selected = min(selectedIndex, max(0, len(m.changes)-1))
+	}
 	if m.diffs == nil {
 		m.diffs = map[string]string{}
 	}
@@ -2089,6 +2095,18 @@ func clamp(value, low, high int) int {
 func indexOf(items []string, want string) int {
 	for i, item := range items {
 		if item == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func changeIndex(changes []gitview.FileChange, want gitview.FileChange) int {
+	if want.Path == "" {
+		return -1
+	}
+	for i, change := range changes {
+		if change.Path == want.Path {
 			return i
 		}
 	}
