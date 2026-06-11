@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
@@ -54,6 +56,10 @@ Themes:
 }
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
+	return loadModel(ctx, repo, themeName, 0, 0)
+}
+
+func loadModel(ctx context.Context, repo Repository, themeName string, width, height int) tui.Model {
 	preset, err := theme.Preset(themeName)
 	themeErr := err
 	if err != nil {
@@ -69,6 +75,8 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 		ThemeName:        preset.Name,
 		Theme:            theme.NewStyles(preset),
 		ThemeNames:       theme.Names(),
+		Width:            width,
+		Height:           height,
 		Worktrees:        snapshot.Worktrees,
 		SelectedWorktree: snapshot.SelectedWorktree,
 		Changes:          snapshot.Changes,
@@ -165,7 +173,20 @@ func min(a, b int) int {
 
 func Run(ctx context.Context, opts Options) error {
 	repo := gitview.Repository{Dir: opts.Dir}
-	model := LoadModel(ctx, repo, ResolveTheme(opts))
-	_, err := tea.NewProgram(model).Run()
+	width, height := terminalSize()
+	model := loadModel(ctx, repo, ResolveTheme(opts), width, height)
+	options := []tea.ProgramOption{}
+	if width > 0 && height > 0 {
+		options = append(options, tea.WithWindowSize(width, height))
+	}
+	_, err := tea.NewProgram(model, options...).Run()
 	return err
+}
+
+func terminalSize() (int, int) {
+	width, height, err := term.GetSize(os.Stdout.Fd())
+	if err != nil {
+		return 0, 0
+	}
+	return width, height
 }
