@@ -41,8 +41,8 @@ func NewStyles(t Theme) Styles {
 		Footer:         lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Background(panelBackground),
 		Diff:           lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(panelBackground),
 		DiffHunk:       lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Background(panelBackground),
-		DiffAddition:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Added)).Background(lipgloss.Color(addedBackground)),
-		DiffDeletion:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Deleted)).Background(lipgloss.Color(deletedBackground)),
+		DiffAddition:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(lipgloss.Color(addedBackground)),
+		DiffDeletion:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.Foreground)).Background(lipgloss.Color(deletedBackground)),
 		DiffFileHeader: lipgloss.NewStyle().Foreground(lipgloss.Color(t.Muted)).Background(panelBackground).Bold(true),
 	}
 }
