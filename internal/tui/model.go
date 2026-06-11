@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
@@ -38,6 +39,7 @@ type Config struct {
 	SaveTheme         func(string) error
 	FindForgeCLI      func() (string, bool)
 	CreatePullRequest func(context.Context, PullRequestRequest) error
+	MergeBranch       func(context.Context, MergeRequest) error
 }
 
 type PullRequestRequest struct {
@@ -46,6 +48,11 @@ type PullRequestRequest struct {
 	Branch      string
 	Title       string
 	Body        string
+}
+
+type MergeRequest struct {
+	Source gitview.Worktree
+	Target gitview.Worktree
 }
 
 type Snapshot struct {
@@ -117,42 +124,46 @@ const (
 )
 
 type Model struct {
-	styles            theme.Styles
-	context           context.Context
-	themeName         string
-	themeNames        []string
-	themeCursor       int
-	worktrees         []WorktreeState
-	selectedWorktree  int
-	changes           []gitview.FileChange
-	diffs             map[string]string
-	diffLines         []string
-	selected          int
-	worktreeScrollX   int
-	fileScrollX       int
-	showLineNumbers   bool
-	revision          int
-	refreshGeneration int
-	width             int
-	height            int
-	err               error
-	toast             toastState
-	toastID           int
-	pickingTheme      bool
-	confirmDelete     bool
-	creatingPR        bool
-	prTitle           textinput.Model
-	prBody            textarea.Model
-	prFormFocus       prFormFocus
-	forgeCLI          string
-	focusedPane       focusedPane
-	loadDiff          func(context.Context, string, gitview.FileChange) string
-	deleteWorktree    func(context.Context, gitview.Worktree) error
-	reload            func(context.Context, string) Snapshot
-	saveTheme         func(string) error
-	findForgeCLI      func() (string, bool)
-	createPullRequest func(context.Context, PullRequestRequest) error
-	viewport          viewport.Model
+	styles             theme.Styles
+	context            context.Context
+	themeName          string
+	themeNames         []string
+	themeCursor        int
+	worktrees          []WorktreeState
+	selectedWorktree   int
+	changes            []gitview.FileChange
+	diffs              map[string]string
+	diffLines          []string
+	selected           int
+	worktreeScrollX    int
+	fileScrollX        int
+	showLineNumbers    bool
+	revision           int
+	refreshGeneration  int
+	width              int
+	height             int
+	err                error
+	toast              toastState
+	toastID            int
+	pickingTheme       bool
+	confirmDelete      bool
+	creatingPR         bool
+	pickingMergeTarget bool
+	prTitle            textinput.Model
+	prBody             textarea.Model
+	prFormFocus        prFormFocus
+	mergeTargetList    list.Model
+	mergeSource        gitview.Worktree
+	forgeCLI           string
+	focusedPane        focusedPane
+	loadDiff           func(context.Context, string, gitview.FileChange) string
+	deleteWorktree     func(context.Context, gitview.Worktree) error
+	reload             func(context.Context, string) Snapshot
+	saveTheme          func(string) error
+	findForgeCLI       func() (string, bool)
+	createPullRequest  func(context.Context, PullRequestRequest) error
+	mergeBranch        func(context.Context, MergeRequest) error
+	viewport           viewport.Model
 }
 
 func NewModel(cfg Config) Model {
@@ -174,6 +185,7 @@ func NewModel(cfg Config) Model {
 		saveTheme:         cfg.SaveTheme,
 		findForgeCLI:      cfg.FindForgeCLI,
 		createPullRequest: cfg.CreatePullRequest,
+		mergeBranch:       cfg.MergeBranch,
 		viewport:          vp,
 		width:             initialDimension(cfg.Width, 100),
 		height:            initialDimension(cfg.Height, 30),
@@ -191,6 +203,9 @@ func NewModel(cfg Config) Model {
 	}
 	if m.createPullRequest == nil {
 		m.createPullRequest = defaultCreatePullRequest
+	}
+	if m.mergeBranch == nil {
+		m.mergeBranch = defaultMergeBranch
 	}
 	if len(m.themeNames) == 0 {
 		m.themeNames = theme.Names()
@@ -243,6 +258,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.creatingPR = false
 		return m, m.showSuccessToast("PR/MR created")
+	case mergeBranchFinishedMsg:
+		if msg.err != nil {
+			return m, m.showErrorToast(fmt.Sprintf("merge failed: %s", msg.err))
+		}
+		m.pickingMergeTarget = false
+		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("merged %s into %s", worktreeLabel(msg.request.Source), worktreeLabel(msg.request.Target)))}
+		if m.reload != nil {
+			m.refreshGeneration++
+			cmds = append(cmds, m.reloadCmd(m.refreshGeneration, msg.request.Target.Path))
+		}
+		return m, tea.Batch(cmds...)
 	case deleteWorktreeFinishedMsg:
 		m.confirmDelete = false
 		if msg.err != nil {
@@ -297,6 +323,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickingTheme {
 			return m.handleThemeKey(msg)
 		}
+		if m.pickingMergeTarget {
+			return m.handleMergeTargetKey(msg)
+		}
 		if m.focusPaneShortcut(msg.String()) {
 			return m, m.ensureSelectedDiffCmd()
 		}
@@ -318,6 +347,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openDeleteConfirm()
 		case "p":
 			return m, m.openPRForm()
+		case "m":
+			return m, m.openMergeTargetPicker()
 		case "tab":
 			m.moveWorktree(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -416,6 +447,8 @@ func (m Model) View() tea.View {
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
 	} else if m.creatingPR {
 		body = m.renderOverlay(body, m.renderPRForm())
+	} else if m.pickingMergeTarget {
+		body = m.renderOverlay(body, m.renderMergeTargetPicker())
 	}
 	body = m.renderToast(body)
 
@@ -525,6 +558,26 @@ func defaultCreatePullRequest(ctx context.Context, req PullRequestRequest) error
 			return fmt.Errorf("%s %v: %w: %s", req.CLI, args, err, detail)
 		}
 		return fmt.Errorf("%s %v: %w", req.CLI, args, err)
+	}
+	return nil
+}
+
+func defaultMergeBranch(ctx context.Context, req MergeRequest) error {
+	if req.Source.Branch == "" || req.Source.Branch == "detached" {
+		return fmt.Errorf("selected worktree has no branch")
+	}
+	if req.Target.Path == "" {
+		return fmt.Errorf("merge target has no worktree path")
+	}
+	cmd := exec.CommandContext(ctx, "git", "merge", req.Source.Branch)
+	cmd.Dir = req.Target.Path
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail != "" {
+			return fmt.Errorf("git merge %s: %w: %s", req.Source.Branch, err, detail)
+		}
+		return fmt.Errorf("git merge %s: %w", req.Source.Branch, err)
 	}
 	return nil
 }
@@ -756,6 +809,108 @@ func (m *Model) openPRForm() tea.Cmd {
 	return nil
 }
 
+func (m *Model) openMergeTargetPicker() tea.Cmd {
+	source := m.SelectedWorktree()
+	if source.Path == "" {
+		return m.showErrorToast("no worktree selected")
+	}
+	if source.Branch == "" || source.Branch == "detached" {
+		return m.showErrorToast("selected worktree has no branch")
+	}
+	if m.isDefaultBranch(source) {
+		return m.showToast("default branch is not a merge source")
+	}
+	items := m.mergeTargetItems(source)
+	if len(items) == 0 {
+		return m.showErrorToast("no merge target branch")
+	}
+	m.mergeSource = source
+	m.mergeTargetList = m.newMergeTargetList(items)
+	m.mergeTargetList.Select(0)
+	m.pickingMergeTarget = true
+	m.focusedPane = paneWorktrees
+	return nil
+}
+
+func (m Model) isDefaultBranch(worktree gitview.Worktree) bool {
+	if worktree.DefaultBranch {
+		return true
+	}
+	defaultBranch := m.defaultBranchName()
+	if defaultBranch != "" {
+		return worktree.Branch == defaultBranch
+	}
+	return worktree.Branch == "main" || worktree.Branch == "master" || worktree.Branch == "trunk"
+}
+
+func (m Model) defaultBranchName() string {
+	for _, state := range m.worktrees {
+		if state.Worktree.DefaultBranch {
+			return state.Worktree.Branch
+		}
+	}
+	for _, candidate := range []string{"main", "master", "trunk"} {
+		for _, state := range m.worktrees {
+			if state.Worktree.Branch == candidate {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func (m Model) mergeTargetItems(source gitview.Worktree) []list.Item {
+	targets := make([]mergeTargetItem, 0, len(m.worktrees))
+	for _, state := range m.worktrees {
+		worktree := state.Worktree
+		if worktree.Path == "" || worktree.Branch == "" || worktree.Branch == "detached" || worktree.Path == source.Path {
+			continue
+		}
+		targets = append(targets, mergeTargetItem{worktree: worktree})
+	}
+	defaultBranch := m.defaultBranchName()
+	for i, target := range targets {
+		if target.worktree.DefaultBranch || target.worktree.Branch == defaultBranch {
+			targets[0], targets[i] = targets[i], targets[0]
+			break
+		}
+	}
+	items := make([]list.Item, len(targets))
+	for i, target := range targets {
+		items[i] = target
+	}
+	return items
+}
+
+func (m Model) newMergeTargetList(items []list.Item) list.Model {
+	width := min(max(34, m.width-12), 64)
+	height := min(max(6, len(items)*2+2), max(6, m.bodyHeight()-4))
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = true
+	delegate.SetHeight(2)
+	delegate.SetSpacing(0)
+	delegate.Styles.NormalTitle = m.styles.FileItem.Background(m.styles.Panel.GetBackground()).PaddingLeft(2)
+	delegate.Styles.NormalDesc = m.styles.Muted.Background(m.styles.Panel.GetBackground()).PaddingLeft(2)
+	delegate.Styles.SelectedTitle = m.styles.FileSelected.PaddingLeft(1)
+	delegate.Styles.SelectedDesc = m.styles.FileSelected.PaddingLeft(1)
+	delegate.Styles.DimmedTitle = delegate.Styles.NormalTitle
+	delegate.Styles.DimmedDesc = delegate.Styles.NormalDesc
+	delegate.Styles.FilterMatch = m.styles.DiffHunk.Underline(true)
+
+	targets := list.New(items, delegate, width, height)
+	targets.Title = iconMerge + " Merge into"
+	targets.SetFilteringEnabled(false)
+	targets.SetShowFilter(false)
+	targets.SetShowStatusBar(false)
+	targets.SetShowHelp(false)
+	targets.SetShowPagination(false)
+	targets.DisableQuitKeybindings()
+	targets.Styles.TitleBar = lipgloss.NewStyle().Background(m.styles.Panel.GetBackground())
+	targets.Styles.Title = m.styles.Title.Background(m.styles.Panel.GetBackground())
+	targets.Styles.NoItems = m.styles.Muted.Background(m.styles.Panel.GetBackground())
+	return targets
+}
+
 func (m *Model) resetPRForm() {
 	m.prTitle = textinput.New()
 	m.prTitle.Prompt = ""
@@ -887,6 +1042,38 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pickingTheme = false
 	}
 	return m, cmd
+}
+
+func (m Model) handleMergeTargetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc", "m":
+		m.pickingMergeTarget = false
+		return m, nil
+	case "enter":
+		return m, m.mergeSelectedTargetCmd()
+	}
+	var cmd tea.Cmd
+	m.mergeTargetList, cmd = m.mergeTargetList.Update(msg)
+	return m, cmd
+}
+
+func (m Model) mergeSelectedTargetCmd() tea.Cmd {
+	target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem)
+	if !ok {
+		return m.showErrorToast("no merge target branch")
+	}
+	request := MergeRequest{
+		Source: m.mergeSource,
+		Target: target.worktree,
+	}
+	if request.Source.Path == "" {
+		request.Source = m.SelectedWorktree()
+	}
+	return func() tea.Msg {
+		return mergeBranchFinishedMsg{request: request, err: m.mergeBranch(m.context, request)}
+	}
 }
 
 func (m *Model) applyThemeCursor() tea.Cmd {
@@ -1383,6 +1570,14 @@ func (m Model) renderThemePicker() string {
 	return m.overlayPanelStyle().Width(34).Render(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderMergeTargetPicker() string {
+	targets := m.mergeTargetList
+	width := min(max(34, m.width-12), 64)
+	height := min(max(6, lipgloss.Height(targets.View())), max(6, m.bodyHeight()-4))
+	targets.SetSize(width, height)
+	return m.overlayPanelStyle().Width(width+4).Padding(1, 2).Render(targets.View())
+}
+
 func (m Model) overlayPanelStyle() lipgloss.Style {
 	return m.styles.Panel
 }
@@ -1763,6 +1958,29 @@ func renderWorktreeLine(styles theme.Styles, _ int, state WorktreeState) string 
 		listStyle(styles, styles.FileItem).Render(name)
 }
 
+type mergeTargetItem struct {
+	worktree gitview.Worktree
+}
+
+func (i mergeTargetItem) FilterValue() string {
+	return worktreeLabel(i.worktree)
+}
+
+func (i mergeTargetItem) Title() string {
+	title := iconBranch + " " + worktreeLabel(i.worktree)
+	if i.worktree.DefaultBranch {
+		title += " (default)"
+	}
+	return title
+}
+
+func (i mergeTargetItem) Description() string {
+	if i.worktree.Path == "" {
+		return ""
+	}
+	return i.worktree.Path
+}
+
 func listStyle(styles theme.Styles, style lipgloss.Style) lipgloss.Style {
 	return style.Background(styles.Panel.GetBackground())
 }
@@ -1894,6 +2112,11 @@ type editorFinishedMsg struct {
 
 type pullRequestFinishedMsg struct {
 	err error
+}
+
+type mergeBranchFinishedMsg struct {
+	request MergeRequest
+	err     error
 }
 
 type deleteWorktreeFinishedMsg struct {

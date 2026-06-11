@@ -922,6 +922,95 @@ func TestDeleteKeyBlocksProtectedWorktree(t *testing.T) {
 	}
 }
 
+func TestMergeKeyBlocksDefaultBranchSource(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("default branch merge should show toast")
+	}
+	if got.pickingMergeTarget {
+		t.Fatal("default branch should not open merge target picker")
+	}
+	if got.toast.Kind != toastInfo || !strings.Contains(got.toast.Message, "default branch") {
+		t.Fatalf("toast = %#v, want default branch info", got.toast)
+	}
+}
+
+func TestMergeKeyOpensTargetListWithDefaultBranchSelected(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/dev", Branch: "dev"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatalf("open merge target picker returned command, want nil")
+	}
+	if !got.pickingMergeTarget {
+		t.Fatal("m should open merge target picker")
+	}
+	selected, ok := got.mergeTargetList.SelectedItem().(mergeTargetItem)
+	if !ok || selected.worktree.Branch != "main" {
+		t.Fatalf("selected merge target = %#v, want main", got.mergeTargetList.SelectedItem())
+	}
+	view := ansi.Strip(got.View().Content)
+	for _, want := range []string{"Merge into", "main", "dev"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("merge target view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestMergeTargetEnterRunsMergeCallback(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	var gotReq MergeRequest
+	model.mergeBranch = func(_ context.Context, req MergeRequest) error {
+		gotReq = req
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	if cmd == nil {
+		t.Fatal("merge target enter should return merge command")
+	}
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if gotReq.Source.Branch != "feature" || gotReq.Target.Branch != "main" {
+		t.Fatalf("merge request = %#v, want feature into main", gotReq)
+	}
+	if got.pickingMergeTarget {
+		t.Fatal("successful merge should close target picker")
+	}
+	if got.toast.Kind != toastSuccess || !strings.Contains(got.toast.Message, "merged feature into main") {
+		t.Fatalf("toast = %#v, want merge success", got.toast)
+	}
+}
+
 func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
