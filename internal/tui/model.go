@@ -1105,13 +1105,31 @@ func (m Model) listFill(text string) string {
 
 func (m Model) renderDeleteConfirm() string {
 	worktree := m.SelectedWorktree()
+	width := 48
+	panel := m.overlayPanelStyle()
+	lineStyle := m.styles.Diff
+	title := m.styles.Error.Background(panel.GetBackground()).Bold(true).Render("DELETE") +
+		lineStyle.Bold(true).Width(width-len("DELETE")).Render(" "+worktreeLabel(worktree)+"/")
+	yes := m.confirmButton("Y", "es")
+	no := m.confirmButton("N", "o")
+	options := lipgloss.NewStyle().
+		Background(panel.GetBackground()).
+		Width(width).
+		Align(lipgloss.Center).
+		Render(yes + lineStyle.Render("     ") + no)
 	lines := []string{
-		m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(44).Render(iconDeleted + " Delete worktree?"),
-		m.styles.Diff.Width(44).Render(worktreeLabel(worktree)),
-		m.styles.Diff.Width(44).Render("remove worktree and delete branch"),
-		m.styles.Diff.Width(44).Render("y/enter yes   n/esc no"),
+		title,
+		lineStyle.Width(width).Render(""),
+		lineStyle.Width(width).Align(lipgloss.Center).Render("remove worktree and delete branch"),
+		lineStyle.Width(width).Render(""),
+		options,
 	}
-	return m.overlayPanelStyle().Width(50).Render(strings.Join(lines, "\n"))
+	return panel.Width(width+4).Padding(1, 2).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) confirmButton(key, label string) string {
+	keyText := m.styles.DiffHunk.Bold(true).Render("[" + key + "]")
+	return keyText + m.styles.Diff.Render(label)
 }
 
 func (m Model) renderThemePicker() string {
