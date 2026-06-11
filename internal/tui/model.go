@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
@@ -1735,7 +1736,7 @@ func (m Model) overlayPosition(foreground string) (int, int) {
 func (m Model) renderDiffContent(diff string, width int) string {
 	lines := strings.Split(diff, "\n")
 	for i, line := range lines {
-		lines[i] = m.diffLineStyle(line).Width(width).Render(line)
+		lines[i] = m.renderDiffSegment(m.diffLineStyle(line), "", line, width, width, shouldHighlightDiffSyntax(line))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1759,10 +1760,11 @@ func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 	seen := 0
 	for _, line := range m.numberedDiffLines() {
 		style := m.diffLineStyle(line.text)
+		highlight := shouldHighlightDiffSyntax(line.text)
 		segments := wrapDisplaySegments(line.text, textWidth)
 		for segmentIndex, segment := range segments {
 			if seen >= offset {
-				lines = append(lines, m.renderDiffSegment(style, m.lineNumberGutter(line, segmentIndex > 0), segment, width, textWidth))
+				lines = append(lines, m.renderDiffSegment(style, m.lineNumberGutter(line, segmentIndex > 0), segment, width, textWidth, highlight))
 				if len(lines) == height {
 					return strings.Join(lines, "\n")
 				}
@@ -1770,7 +1772,7 @@ func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 			seen++
 		}
 	}
-	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth)), "\n")
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth, false)), "\n")
 }
 
 func (m Model) renderUnwrappedDiffViewport(width, textWidth, height int) string {
@@ -1781,17 +1783,93 @@ func (m Model) renderUnwrappedDiffViewport(width, textWidth, height int) string 
 	for i := offset; i < len(numbered) && len(lines) < height; i++ {
 		line := numbered[i]
 		segment := ansi.Cut(line.text, xOffset, xOffset+textWidth)
-		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth))
+		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth, shouldHighlightDiffSyntax(line.text)))
 	}
-	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth)), "\n")
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth, false)), "\n")
 }
 
-func (m Model) renderDiffSegment(style lipgloss.Style, gutter, segment string, width, textWidth int) string {
+func (m Model) renderDiffSegment(style lipgloss.Style, gutter, segment string, width, textWidth int, highlight bool) string {
 	if gutter != "" {
-		text := style.Inline(true).Width(textWidth).Render(segment)
+		text := m.renderDiffText(style, segment, textWidth, highlight)
 		return gutter + text
 	}
-	return style.Inline(true).Width(width).Render(segment)
+	return m.renderDiffText(style, segment, width, highlight)
+}
+
+func (m Model) renderDiffText(style lipgloss.Style, segment string, width int, highlight bool) string {
+	if !highlight || segment == "" || !containsSyntaxKeyword(segment) {
+		return style.Inline(true).Width(width).Render(segment)
+	}
+	text := m.highlightSyntaxKeywords(segment, style)
+	padding := max(0, width-lipgloss.Width(text))
+	if padding > 0 {
+		text += style.Inline(true).Render(strings.Repeat(" ", padding))
+	}
+	return text
+}
+
+func containsSyntaxKeyword(segment string) bool {
+	tokenStart := -1
+	for i, r := range segment {
+		if isSyntaxIdentRune(r) {
+			if tokenStart < 0 {
+				tokenStart = i
+			}
+			continue
+		}
+		if tokenStart >= 0 {
+			if _, ok := syntaxKeywords[segment[tokenStart:i]]; ok {
+				return true
+			}
+			tokenStart = -1
+		}
+	}
+	if tokenStart >= 0 {
+		_, ok := syntaxKeywords[segment[tokenStart:]]
+		return ok
+	}
+	return false
+}
+
+func (m Model) highlightSyntaxKeywords(segment string, base lipgloss.Style) string {
+	var rendered strings.Builder
+	last := 0
+	tokenStart := -1
+	for i, r := range segment {
+		if isSyntaxIdentRune(r) {
+			if tokenStart < 0 {
+				tokenStart = i
+			}
+			continue
+		}
+		if tokenStart >= 0 {
+			m.writeSyntaxToken(&rendered, base, segment[last:tokenStart], segment[tokenStart:i])
+			last = i
+			tokenStart = -1
+		}
+	}
+	if tokenStart >= 0 {
+		m.writeSyntaxToken(&rendered, base, segment[last:tokenStart], segment[tokenStart:])
+		last = len(segment)
+	}
+	if last < len(segment) {
+		rendered.WriteString(base.Inline(true).Render(segment[last:]))
+	}
+	return rendered.String()
+}
+
+func (m Model) writeSyntaxToken(out *strings.Builder, base lipgloss.Style, prefix, token string) {
+	if prefix != "" {
+		out.WriteString(base.Inline(true).Render(prefix))
+	}
+	if _, ok := syntaxKeywords[token]; ok {
+		out.WriteString(m.styles.DiffKeyword.
+			Background(base.GetBackground()).
+			Inline(true).
+			Render(token))
+		return
+	}
+	out.WriteString(base.Inline(true).Render(token))
 }
 
 func wrapDisplaySegments(line string, width int) []string {
@@ -1952,6 +2030,150 @@ func (m Model) diffLineStyle(line string) lipgloss.Style {
 	default:
 		return m.styles.Diff
 	}
+}
+
+func shouldHighlightDiffSyntax(line string) bool {
+	return line != "" &&
+		!strings.HasPrefix(line, "+++") &&
+		!strings.HasPrefix(line, "---") &&
+		!strings.HasPrefix(line, "diff --git") &&
+		!strings.HasPrefix(line, "@@")
+}
+
+func isSyntaxIdentRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+var syntaxKeywords = map[string]struct{}{
+	"abstract":    {},
+	"as":          {},
+	"async":       {},
+	"await":       {},
+	"base":        {},
+	"bool":        {},
+	"boolean":     {},
+	"break":       {},
+	"case":        {},
+	"catch":       {},
+	"chan":        {},
+	"class":       {},
+	"const":       {},
+	"constructor": {},
+	"continue":    {},
+	"crate":       {},
+	"data":        {},
+	"defer":       {},
+	"def":         {},
+	"default":     {},
+	"del":         {},
+	"delete":      {},
+	"do":          {},
+	"double":      {},
+	"dynamic":     {},
+	"elif":        {},
+	"else":        {},
+	"elseif":      {},
+	"enum":        {},
+	"event":       {},
+	"except":      {},
+	"export":      {},
+	"extends":     {},
+	"extern":      {},
+	"fallthrough": {},
+	"false":       {},
+	"final":       {},
+	"finally":     {},
+	"float":       {},
+	"fn":          {},
+	"for":         {},
+	"foreach":     {},
+	"from":        {},
+	"fun":         {},
+	"func":        {},
+	"function":    {},
+	"global":      {},
+	"go":          {},
+	"goto":        {},
+	"guard":       {},
+	"if":          {},
+	"impl":        {},
+	"implements":  {},
+	"import":      {},
+	"in":          {},
+	"inline":      {},
+	"interface":   {},
+	"internal":    {},
+	"is":          {},
+	"let":         {},
+	"long":        {},
+	"match":       {},
+	"module":      {},
+	"mut":         {},
+	"namespace":   {},
+	"native":      {},
+	"new":         {},
+	"nil":         {},
+	"nonlocal":    {},
+	"null":        {},
+	"object":      {},
+	"operator":    {},
+	"out":         {},
+	"override":    {},
+	"package":     {},
+	"pass":        {},
+	"private":     {},
+	"property":    {},
+	"protected":   {},
+	"protocol":    {},
+	"pub":         {},
+	"public":      {},
+	"raise":       {},
+	"range":       {},
+	"readonly":    {},
+	"record":      {},
+	"ref":         {},
+	"require":     {},
+	"return":      {},
+	"select":      {},
+	"sealed":      {},
+	"self":        {},
+	"short":       {},
+	"signed":      {},
+	"sizeof":      {},
+	"static":      {},
+	"strictfp":    {},
+	"struct":      {},
+	"super":       {},
+	"switch":      {},
+	"sync":        {},
+	"template":    {},
+	"this":        {},
+	"throw":       {},
+	"throws":      {},
+	"trait":       {},
+	"true":        {},
+	"try":         {},
+	"type":        {},
+	"typealias":   {},
+	"typedef":     {},
+	"typename":    {},
+	"uint":        {},
+	"unchecked":   {},
+	"union":       {},
+	"unsafe":      {},
+	"unsigned":    {},
+	"use":         {},
+	"using":       {},
+	"val":         {},
+	"var":         {},
+	"virtual":     {},
+	"void":        {},
+	"volatile":    {},
+	"when":        {},
+	"where":       {},
+	"while":       {},
+	"with":        {},
+	"yield":       {},
 }
 
 func (m Model) layoutWidths() (int, int) {
