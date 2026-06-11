@@ -60,6 +60,14 @@ const (
 	iconQuit      = "󰩈"
 )
 
+type focusedPane int
+
+const (
+	paneWorktrees focusedPane = iota
+	paneFiles
+	paneDiff
+)
+
 type Model struct {
 	styles            theme.Styles
 	context           context.Context
@@ -79,6 +87,7 @@ type Model struct {
 	status            string
 	showHelp          bool
 	pickingTheme      bool
+	focusedPane       focusedPane
 	loadDiff          func(context.Context, string, gitview.FileChange) string
 	reload            func(context.Context, string) Snapshot
 	saveTheme         func(string) error
@@ -104,6 +113,7 @@ func NewModel(cfg Config) Model {
 		viewport:         vp,
 		width:            100,
 		height:           30,
+		focusedPane:      paneFiles,
 	}
 	if m.themeName == "" {
 		m.themeName = "tokyonight"
@@ -200,11 +210,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveSelection(-1)
 			return m, m.ensureSelectedDiffCmd()
 		case "g", "home":
+			m.focusedPane = paneFiles
 			m.selected = 0
 			m.refreshDiff()
 			return m, m.ensureSelectedDiffCmd()
 		case "G", "end":
 			if len(m.changes) > 0 {
+				m.focusedPane = paneFiles
 				m.selected = len(m.changes) - 1
 				m.refreshDiff()
 				return m, m.ensureSelectedDiffCmd()
@@ -247,7 +259,7 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) footerText() string {
-	text := fmt.Sprintf("1-9  tab  j/k  %s r  %s t  %s ?  %s q", iconRefresh, iconTheme, iconHelp, iconQuit)
+	text := fmt.Sprintf("1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconRefresh, iconTheme, iconHelp, iconQuit)
 	if m.status != "" {
 		return m.status + "  " + text
 	}
@@ -272,6 +284,7 @@ func (m *Model) moveSelection(delta int) {
 	if len(m.changes) == 0 {
 		return
 	}
+	m.focusedPane = paneFiles
 	m.selected += delta
 	if m.selected < 0 {
 		m.selected = 0
@@ -286,6 +299,7 @@ func (m *Model) moveWorktree(delta int) {
 	if len(m.worktrees) == 0 {
 		return
 	}
+	m.focusedPane = paneWorktrees
 	m.selectedWorktree += delta
 	if m.selectedWorktree < 0 {
 		m.selectedWorktree = len(m.worktrees) - 1
@@ -304,6 +318,7 @@ func (m *Model) selectWorktreeShortcut(key string) bool {
 	if index >= len(m.worktrees) {
 		return false
 	}
+	m.focusedPane = paneWorktrees
 	m.selectWorktree(index)
 	return true
 }
@@ -374,7 +389,11 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 		return false
 	}
 	leftWidth, _ := m.layoutWidths()
-	if mouse.X >= leftWidth || mouse.Y < 3 {
+	if mouse.X >= leftWidth {
+		m.focusedPane = paneDiff
+		return false
+	}
+	if mouse.Y < 3 {
 		return false
 	}
 	contentHeight := max(4, m.height-4)
@@ -383,6 +402,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	if bodyY >= 0 && bodyY < worktreeHeight {
 		index := m.worktreeListOffset(worktreeHeight) + bodyY - 2
 		if index >= 0 && index < len(m.worktrees) {
+			m.focusedPane = paneWorktrees
 			m.selectWorktree(index)
 			return true
 		}
@@ -391,6 +411,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	fileY := bodyY - worktreeHeight
 	index := m.listOffset(max(4, contentHeight-worktreeHeight)) + fileY - 2
 	if index >= 0 && index < len(m.changes) {
+		m.focusedPane = paneFiles
 		m.selected = index
 		m.refreshDiff()
 		return true
@@ -507,7 +528,8 @@ func (m *Model) refreshDiff() {
 
 func (m Model) renderWorktrees(width, height int) string {
 	lines := make([]string, 0, len(m.worktrees)+1)
-	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("[1]-%s %d worktrees", iconWorktree, len(m.worktrees))))
+	focused := m.focusedPane == paneWorktrees
+	lines = append(lines, m.renderPanelHeader(focused, fmt.Sprintf("[1]-%s %d worktrees", iconWorktree, len(m.worktrees))))
 	contentWidth := panelInnerWidth(width)
 	visibleRows := max(1, panelInnerHeight(height)-2)
 	offset := m.worktreeListOffset(height)
@@ -526,7 +548,7 @@ func (m Model) renderWorktrees(width, height int) string {
 		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.worktrees)-end)))
 	}
 	innerHeight := panelInnerHeight(height)
-	return m.styles.PanelFocused.Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
+	return m.panelStyle(focused).Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
 }
 
 func (m Model) worktreeListOffset(height int) int {
@@ -547,7 +569,8 @@ func (m Model) worktreeListOffset(height int) int {
 
 func (m Model) renderFiles(width, height int) string {
 	lines := make([]string, 0, len(m.changes)+1)
-	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("[2]-%s %d files", iconFile, len(m.changes))))
+	focused := m.focusedPane == paneFiles
+	lines = append(lines, m.renderPanelHeader(focused, fmt.Sprintf("[2]-%s %d files", iconFile, len(m.changes))))
 	contentWidth := panelInnerWidth(width)
 	visibleRows := max(1, panelInnerHeight(height)-2)
 	offset := m.listOffset(height)
@@ -568,7 +591,7 @@ func (m Model) renderFiles(width, height int) string {
 		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
 	}
 	innerHeight := panelInnerHeight(height)
-	return m.styles.PanelFocused.Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
+	return m.panelStyle(focused).Width(contentWidth).Height(innerHeight).Render(strings.Join(fillLines(lines, innerHeight), "\n"))
 }
 
 func (m Model) listOffset(height int) int {
@@ -592,8 +615,23 @@ func (m Model) renderDiff(width, height int) string {
 	if change := m.Selected(); change.Path != "" {
 		selected = "[3]-" + change.Path
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, m.styles.Header.Render(selected), m.viewport.View())
-	return m.styles.Panel.Width(panelInnerWidth(width)).Height(panelInnerHeight(height)).Render(content)
+	focused := m.focusedPane == paneDiff
+	content := lipgloss.JoinVertical(lipgloss.Left, m.renderPanelHeader(focused, selected), m.viewport.View())
+	return m.panelStyle(focused).Width(panelInnerWidth(width)).Height(panelInnerHeight(height)).Render(content)
+}
+
+func (m Model) renderPanelHeader(focused bool, text string) string {
+	if focused {
+		return m.styles.Title.Render("● " + text)
+	}
+	return m.styles.Header.Render("  " + text)
+}
+
+func (m Model) panelStyle(focused bool) lipgloss.Style {
+	if focused {
+		return m.styles.PanelFocused
+	}
+	return m.styles.Panel
 }
 
 func (m Model) renderHelp() string {
