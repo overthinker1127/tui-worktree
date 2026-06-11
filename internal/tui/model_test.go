@@ -233,7 +233,7 @@ func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	overlay := model.renderThemePicker()
 	x, y := model.overlayPosition(overlay)
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 4}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 3}))
 	got := next.(Model)
 
 	if got.themeName != "nord" {
@@ -1808,7 +1808,7 @@ func TestMouseClickSelectsTheme(t *testing.T) {
 	overlay := model.renderThemePicker()
 	x, y := model.overlayPosition(overlay)
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 4}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 3}))
 	got := next.(Model)
 
 	if got.themeName != "gruvbox" {
