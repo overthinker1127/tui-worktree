@@ -52,7 +52,7 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 		if got.Name == "" {
 			t.Fatalf("Preset(%q).Name is empty", name)
 		}
-		if got.Background == "" || got.Foreground == "" || got.Accent == "" {
+		if got.Background == "" || got.Foreground == "" || got.Accent == "" || got.Keyword == "" {
 			t.Fatalf("Preset(%q) returned empty color tokens: %#v", name, got)
 		}
 	}
@@ -93,6 +93,56 @@ func TestNewStylesBuildsRenderableStyles(t *testing.T) {
 
 	if rendered == "" || rendered == "Files changed" {
 		t.Fatalf("Title.Render() = %q, want styled output", rendered)
+	}
+}
+
+func TestDiffKeywordUsesKeywordColorWhenConfigured(t *testing.T) {
+	tm := Theme{
+		Name:          "custom",
+		Background:    "#000000",
+		Foreground:    "#ffffff",
+		Muted:         "#777777",
+		Accent:        "#111111",
+		Keyword:       "#ff00ff",
+		Border:        "#222222",
+		Added:         "#00ff00",
+		Deleted:       "#ff0000",
+		Error:         "#ff0000",
+		Panel:         "#101010",
+		PanelSelected: "#202020",
+	}
+
+	styles := NewStyles(tm)
+	rendered := styles.DiffKeyword.Render("func")
+
+	if !containsEscape(rendered, "38;2;255;0;255") {
+		t.Fatalf("DiffKeyword = %q, want configured keyword foreground", rendered)
+	}
+	if containsEscape(rendered, "38;2;17;17;17") {
+		t.Fatalf("DiffKeyword = %q, should not use accent when keyword is configured", rendered)
+	}
+}
+
+func TestDiffKeywordFallsBackToAccentColor(t *testing.T) {
+	tm := Theme{
+		Name:          "custom",
+		Background:    "#000000",
+		Foreground:    "#ffffff",
+		Muted:         "#777777",
+		Accent:        "#111111",
+		Border:        "#222222",
+		Added:         "#00ff00",
+		Deleted:       "#ff0000",
+		Error:         "#ff0000",
+		Panel:         "#101010",
+		PanelSelected: "#202020",
+	}
+
+	styles := NewStyles(tm)
+	rendered := styles.DiffKeyword.Render("func")
+
+	if !containsEscape(rendered, "38;2;17;17;17") {
+		t.Fatalf("DiffKeyword = %q, want accent fallback foreground", rendered)
 	}
 }
 

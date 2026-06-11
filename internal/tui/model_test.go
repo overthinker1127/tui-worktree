@@ -820,6 +820,59 @@ func TestDiffWrappedTailFillsToViewportWidthWithLineBackground(t *testing.T) {
 	}
 }
 
+func TestDiffSyntaxHighlightsStaticKeywords(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 24
+	model.refreshDiff()
+	model.setDiffContent(strings.Join([]string{
+		"+func main() {",
+		"+  if ready { const value = function() {} }",
+		"+  def build(self): return class_name",
+		"+  public class App implements Runnable {}",
+		"+  async fn run() -> Result<()> { await task }",
+		"+  switch kind { case value: return }",
+		"+  typedef struct Node union Value",
+		"+  record User(val name: String)",
+		"+  fun render() = true",
+		"+  var count = 1",
+		"+  let next = count",
+		"+  elseif fallback { return }",
+		"}",
+	}, "\n"))
+
+	view := model.renderDiffViewportContent()
+	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
+
+	if keywordToken == "" || !strings.Contains(view, keywordToken) {
+		t.Fatalf("diff syntax keywords should use keyword token %q in %q", keywordToken, view)
+	}
+	for _, want := range []string{
+		"func", "if", "const", "function", "def", "public", "class", "implements",
+		"async", "fn", "await", "switch", "case", "typedef", "struct", "union",
+		"record", "val", "fun", "var", "let", "elseif",
+	} {
+		if !strings.Contains(ansi.Strip(view), want) {
+			t.Fatalf("diff view missing keyword %q in %q", want, view)
+		}
+	}
+}
+
+func TestDiffSyntaxDoesNotHighlightKeywordFragments(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 24
+	model.refreshDiff()
+	model.setDiffContent("+constellation functionality letter variable")
+
+	view := model.renderDiffViewportContent()
+	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
+
+	if keywordToken != "" && strings.Contains(view, keywordToken) {
+		t.Fatalf("keyword fragments should not be highlighted with %q in %q", keywordToken, view)
+	}
+}
+
 func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{
@@ -1923,6 +1976,14 @@ func styleBackgroundToken(style lipgloss.Style) string {
 func styleForegroundToken(style lipgloss.Style) string {
 	rendered := style.Render(" ")
 	return styleANSIToken(rendered, "38;2;")
+}
+
+func foregroundOnlyToken(style lipgloss.Style) string {
+	token := styleForegroundToken(style)
+	if before, _, ok := strings.Cut(token, ";48;2;"); ok {
+		return before
+	}
+	return token
 }
 
 func styleANSIToken(rendered, prefix string) string {
