@@ -149,6 +149,31 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	}
 }
 
+func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Modified},
+	}
+	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
+	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
+	}
+	model.refreshDiff()
+
+	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 4}))
+	if cmd == nil {
+		t.Fatal("mouse selection did not request lazy diff load")
+	}
+	msg := cmd()
+	next, _ = next.(Model).Update(msg)
+	got := next.(Model)
+
+	if !strings.Contains(got.View().Content, "+b") {
+		t.Fatalf("View() missing lazily loaded mouse diff: %q", got.View().Content)
+	}
+}
+
 func TestMouseClickSelectsTheme(t *testing.T) {
 	model := testModel(t)
 	model.themeNames = []string{"tokyonight", "gruvbox"}

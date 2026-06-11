@@ -125,7 +125,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.resizeViewport()
 	case tea.MouseClickMsg:
-		m.handleMouse(msg.Mouse())
+		if m.handleMouse(msg.Mouse()) {
+			return m, m.ensureSelectedDiffCmd()
+		}
 	case tea.KeyPressMsg:
 		if m.showHelp {
 			switch msg.String() {
@@ -270,7 +272,7 @@ func (m *Model) applyThemeCursor() {
 	m.refreshDiff()
 }
 
-func (m *Model) handleMouse(mouse tea.Mouse) {
+func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	if m.pickingTheme {
 		index := mouse.Y - 3
 		if index >= 0 && index < len(m.themeNames) {
@@ -278,17 +280,19 @@ func (m *Model) handleMouse(mouse tea.Mouse) {
 			m.applyThemeCursor()
 			m.pickingTheme = false
 		}
-		return
+		return false
 	}
 	leftWidth, _ := m.layoutWidths()
 	if mouse.X >= leftWidth || mouse.Y < 3 {
-		return
+		return false
 	}
 	index := m.listOffset(m.height-4) + mouse.Y - 3
 	if index >= 0 && index < len(m.changes) {
 		m.selected = index
 		m.refreshDiff()
+		return true
 	}
+	return false
 }
 
 func (m Model) reloadCmd() tea.Cmd {
