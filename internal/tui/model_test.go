@@ -93,19 +93,14 @@ func TestModelMovesSelectionDown(t *testing.T) {
 	}
 }
 
-func TestQuestionMarkTogglesHelp(t *testing.T) {
+func TestQuestionMarkDoesNotOpenHelpOverlay(t *testing.T) {
 	model := testModel(t)
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	view := next.(Model).View().Content
 
-	for _, want := range []string{"Help", "1/2/3: focus panels", "auto-refresh", iconTheme + " t themes", "a.go"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("help view missing %q in %q", want, view)
-		}
-	}
-	if strings.Contains(view, "mouse select") {
-		t.Fatalf("help view should not explain mouse selection: %q", view)
+	if strings.Contains(view, "Help") || strings.Contains(view, "auto-refresh") {
+		t.Fatalf("question mark should not open help overlay: %q", view)
 	}
 }
 
@@ -259,22 +254,61 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 
 	footer := model.footerText()
 	plain := ansi.Strip(footer)
-	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "e edit", "w wrap", "n nums", "t themes", "? help", "q quit"} {
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "e edit", "t themes", "q quit"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
+		}
+	}
+	for _, unwanted := range []string{"d delete", "w wrap", "n nums", "? help"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("files footer should omit %q in %q", unwanted, footer)
 		}
 	}
 	if strings.Contains(footer, "auto 5s") {
 		t.Fatalf("footer should not show auto-refresh interval: %q", footer)
 	}
-	for _, want := range []string{iconWorktree, iconKey, iconFile, iconEdit, iconWrap, iconNumbers, " │ "} {
+	for _, want := range []string{iconWorktree, iconKey, iconFile, iconEdit, iconTheme, iconQuit, " │ "} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
 	}
-	for _, want := range []string{"1/2/3", "tab", "hjkl", "e", "w", "n", "t", "?", "q"} {
+	for _, want := range []string{"1/2/3", "tab", "hjkl", "e", "t", "q"} {
 		if !strings.Contains(footer, "\x1b[1;") || !strings.Contains(plain, want) {
 			t.Fatalf("footer key %q should be bold in %q", want, footer)
+		}
+	}
+}
+
+func TestFooterShowsWorktreeActionsWhenWorktreeFocused(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+
+	plain := ansi.Strip(model.footerText())
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "d delete", "p PR", "m merge", "t themes", "q quit"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("worktree footer missing %q in %q", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"e edit", "w wrap", "n nums", "? help"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("worktree footer should omit %q in %q", unwanted, plain)
+		}
+	}
+}
+
+func TestFooterShowsDiffActionsWhenDiffFocused(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneDiff
+
+	plain := ansi.Strip(model.footerText())
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl scroll", "e edit", "w wrap", "n nums", "t themes", "q quit"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("diff footer missing %q in %q", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"d delete", "p PR", "m merge", "? help"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("diff footer should omit %q in %q", unwanted, plain)
 		}
 	}
 }
@@ -378,7 +412,7 @@ func TestListLineSpacesUsePanelBackground(t *testing.T) {
 
 func TestFooterAlignsToRightEdge(t *testing.T) {
 	model := testModel(t)
-	model.width = 120
+	model.width = 160
 
 	line := rightAlignText(model.footerText(), model.width)
 
@@ -421,7 +455,7 @@ func TestViewKeepsFooterOnLastLine(t *testing.T) {
 	lines := strings.Split(model.View().Content, "\n")
 	last := ansi.Strip(lines[len(lines)-1])
 
-	if !strings.Contains(last, "n nums") || !strings.Contains(last, "? help") {
+	if !strings.Contains(last, "e edit") || !strings.Contains(last, "q quit") {
 		t.Fatalf("last line should contain footer hints, got %q in view %q", last, model.View().Content)
 	}
 }
@@ -787,6 +821,86 @@ func TestProtectedWorktreeLineShowsLock(t *testing.T) {
 
 	if !strings.Contains(ansi.Strip(line), iconProtected+" "+iconBranch+" main") {
 		t.Fatalf("protected worktree line should show lock: %q", line)
+	}
+}
+
+func TestDeleteKeyShowsConfirmForUnprotectedWorktree(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatalf("delete confirm should not run command yet")
+	}
+	if !got.confirmDelete {
+		t.Fatal("delete key should open confirm dialog")
+	}
+	if !strings.Contains(got.View().Content, "Delete worktree?") {
+		t.Fatalf("delete confirm view missing prompt: %q", got.View().Content)
+	}
+}
+
+func TestDeleteKeyBlocksProtectedWorktree(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Protected: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("protected delete should show toast")
+	}
+	if got.confirmDelete {
+		t.Fatal("protected delete should not open confirm dialog")
+	}
+	if !strings.Contains(got.toast, "protected") {
+		t.Fatalf("toast = %q, want protected warning", got.toast)
+	}
+}
+
+func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
+	model := testModel(t)
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	var deleted gitview.Worktree
+	model.deleteWorktree = func(_ context.Context, worktree gitview.Worktree) error {
+		deleted = worktree
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	if cmd == nil {
+		t.Fatal("confirm delete should return command")
+	}
+	msg := cmd()
+	next, _ = next.(Model).Update(msg)
+	got := next.(Model)
+
+	if deleted.Branch != "feature" {
+		t.Fatalf("deleted branch = %q, want feature", deleted.Branch)
+	}
+	if got.confirmDelete {
+		t.Fatal("confirm dialog should close after delete")
+	}
+	if !strings.Contains(got.toast, "deleted feature") {
+		t.Fatalf("toast = %q, want deleted feature", got.toast)
 	}
 }
 

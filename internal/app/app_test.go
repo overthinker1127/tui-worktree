@@ -8,14 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
+	"github.com/overthinker1127/tui-worktree/internal/tui"
 )
 
 type fakeRepo struct {
-	changes []gitview.FileChange
-	diffs   map[string]string
-	err     error
-	calls   []string
+	changes   []gitview.FileChange
+	diffs     map[string]string
+	worktrees []gitview.Worktree
+	err       error
+	calls     []string
+	deleted   []gitview.Worktree
 }
 
 func (f *fakeRepo) Changes(context.Context) ([]gitview.FileChange, error) {
@@ -28,6 +32,18 @@ func (f *fakeRepo) Changes(context.Context) ([]gitview.FileChange, error) {
 func (f *fakeRepo) Diff(_ context.Context, change gitview.FileChange) (string, error) {
 	f.calls = append(f.calls, change.Path)
 	return f.diffs[change.Path], nil
+}
+
+func (f *fakeRepo) DeleteWorktree(_ context.Context, worktree gitview.Worktree) error {
+	f.deleted = append(f.deleted, worktree)
+	return nil
+}
+
+func (f *fakeRepo) Worktrees(context.Context) ([]gitview.Worktree, error) {
+	if len(f.worktrees) > 0 {
+		return f.worktrees, nil
+	}
+	return []gitview.Worktree{{Path: ".", Branch: "current", Current: true}}, nil
 }
 
 func TestParseArgs(t *testing.T) {
@@ -147,5 +163,23 @@ func TestLoadModelKeepsDataWhenThemeIsInvalid(t *testing.T) {
 	view := model.View().Content
 	if !strings.Contains(view, "main.go") || !strings.Contains(view, "unknown theme") {
 		t.Fatalf("LoadModel invalid theme view = %q", view)
+	}
+}
+
+func TestLoadModelWiresDeleteWorktree(t *testing.T) {
+	repo := &fakeRepo{
+		worktrees: []gitview.Worktree{{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model := LoadModel(context.Background(), repo, "tokyonight")
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next, cmd := next.(tui.Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	if cmd == nil {
+		t.Fatal("confirm delete returned nil command")
+	}
+	_, _ = next.(tui.Model).Update(cmd())
+
+	if len(repo.deleted) != 1 || repo.deleted[0].Branch != "feature" {
+		t.Fatalf("deleted = %#v, want feature", repo.deleted)
 	}
 }
