@@ -58,6 +58,8 @@ func TestRepositoryDiffReturnsUntrackedMessage(t *testing.T) {
 
 func TestRepositoryDiffRequestsUncoloredOutput(t *testing.T) {
 	runner := &fakeRunner{outputs: map[string]string{
+		"git rev-parse --show-toplevel":                                         ".",
+		"git rev-parse --verify HEAD":                                           "abc123\n",
 		"git diff --no-ext-diff --find-renames --color=never HEAD -- README.md": "diff --git a/README.md b/README.md\n",
 	}}
 	repo := Repository{Runner: runner}
@@ -67,19 +69,19 @@ func TestRepositoryDiffRequestsUncoloredOutput(t *testing.T) {
 		t.Fatalf("Diff() error = %v", err)
 	}
 	want := "git diff --no-ext-diff --find-renames --color=never HEAD -- README.md"
-	if len(runner.calls) != 1 || runner.calls[0] != want {
+	if len(runner.calls) != 3 || runner.calls[2] != want {
 		t.Fatalf("Diff() command = %#v, want %q", runner.calls, want)
 	}
 }
 
 func TestRepositoryChangesWrapsStatusError(t *testing.T) {
 	runner := &fakeRunner{
-		errs: map[string]error{"git status --porcelain=v1 -z": errors.New("not a repo")},
+		errs: map[string]error{"git rev-parse --show-toplevel": errors.New("not a repo")},
 	}
 	repo := Repository{Runner: runner}
 
 	_, err := repo.Changes(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "git status") {
-		t.Fatalf("Changes() error = %v, want git status context", err)
+	if err == nil || !strings.Contains(err.Error(), "git rev-parse --show-toplevel") {
+		t.Fatalf("Changes() error = %v, want git root context", err)
 	}
 }

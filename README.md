@@ -1,4 +1,4 @@
-# tui-worktree
+# worktree-diff-tui
 
 Read-only TUI for reviewing the current git worktree in a GitHub PR-style files changed view.
 
@@ -14,10 +14,10 @@ Override repo or theme:
 task run REPO=/path/to/repo THEME=kanagawa
 ```
 
-Plan-compatible alias:
+Compatibility alias:
 
 ```bash
-task run-alias THEME=catppuccin
+task run-legacy THEME=catppuccin
 ```
 
 Verification:
@@ -62,7 +62,6 @@ task check
 - `r`: refresh worktree changes
 - `t`: open theme picker
 - `?`: toggle help
-- mouse click: select files or theme entries
 - `q` / `esc` / `ctrl+c`: quit
 
 ## Manual Smoke Test

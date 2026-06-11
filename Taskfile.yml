@@ -11,14 +11,14 @@ tasks:
       - task --list
 
   run:
-    desc: Run tui-worktree. Override with REPO=/path THEME=kanagawa.
-    cmds:
-      - go run ./cmd/tui-worktree --repo "{{.REPO}}" --theme "{{.THEME}}"
-
-  run-alias:
-    desc: Run the plan-compatible worktree-diff-tui alias.
+    desc: Run worktree-diff-tui. Override with REPO=/path THEME=kanagawa.
     cmds:
       - go run ./cmd/worktree-diff-tui --repo "{{.REPO}}" --theme "{{.THEME}}"
+
+  run-legacy:
+    desc: Run the tui-worktree compatibility alias.
+    cmds:
+      - go run ./cmd/tui-worktree --repo "{{.REPO}}" --theme "{{.THEME}}"
 
   help:
     desc: Show CLI help.
@@ -70,4 +70,4 @@ tasks:
         printf "\x03\x04" >> "$tmp/image.bin"
         echo "Smoke repo: $tmp"
         echo "Expected changes: modified README.md, added added.txt, deleted deleted.txt, renamed old name.txt -> new name.txt, binary image.bin"
-        go run ./cmd/tui-worktree --repo "$tmp" --theme "{{.THEME}}"
+        go run ./cmd/worktree-diff-tui --repo "$tmp" --theme "{{.THEME}}"

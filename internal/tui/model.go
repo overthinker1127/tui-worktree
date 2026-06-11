@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	Context    context.Context
 	ThemeName  string
 	Theme      theme.Styles
 	ThemeNames []string
@@ -30,8 +31,23 @@ type Snapshot struct {
 	Error   error
 }
 
+const (
+	iconFile      = "󰈙"
+	iconModified  = ""
+	iconAdded     = ""
+	iconDeleted   = ""
+	iconRenamed   = "󰁕"
+	iconUntracked = ""
+	iconBinary    = ""
+	iconRefresh   = ""
+	iconTheme     = ""
+	iconHelp      = "󰋖"
+	iconQuit      = "󰩈"
+)
+
 type Model struct {
 	styles       theme.Styles
+	context      context.Context
 	themeName    string
 	themeNames   []string
 	themeCursor  int
@@ -53,6 +69,7 @@ func NewModel(cfg Config) Model {
 	vp.SoftWrap = false
 	m := Model{
 		styles:     cfg.Theme,
+		context:    cfg.Context,
 		themeName:  cfg.ThemeName,
 		themeNames: cfg.ThemeNames,
 		changes:    cfg.Changes,
@@ -65,6 +82,9 @@ func NewModel(cfg Config) Model {
 	}
 	if m.themeName == "" {
 		m.themeName = "tokyonight"
+	}
+	if m.context == nil {
+		m.context = context.Background()
 	}
 	if len(m.themeNames) == 0 {
 		m.themeNames = theme.Names()
@@ -147,7 +167,7 @@ func (m Model) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, files, diff)
 
 	header := m.styles.Title.Render("Files changed")
-	footerText := fmt.Sprintf("theme:%s  j/k move  r refresh  t themes  ? help  q quit", m.themeName)
+	footerText := fmt.Sprintf("%s theme:%s  j/k move  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
 	if m.status != "" {
 		footerText = m.status + "  " + footerText
 	}
@@ -264,7 +284,7 @@ func (m Model) reloadCmd() tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		return reloadMsg{snapshot: reload(context.Background())}
+		return reloadMsg{snapshot: reload(m.context)}
 	}
 }
 
@@ -302,7 +322,7 @@ func (m *Model) refreshDiff() {
 
 func (m Model) renderFiles(width, height int) string {
 	lines := make([]string, 0, len(m.changes)+1)
-	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%d files", len(m.changes))))
+	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d files", iconFile, len(m.changes))))
 	for i, change := range m.changes {
 		line := renderFileLine(m.styles, change)
 		if i == m.selected {
@@ -319,7 +339,7 @@ func (m Model) renderFiles(width, height int) string {
 }
 
 func (m Model) renderDiff(width, height int) string {
-	selected := "Diff"
+	selected := iconFile + " Diff"
 	if change := m.Selected(); change.Path != "" {
 		selected = change.Path
 	}
@@ -329,19 +349,18 @@ func (m Model) renderDiff(width, height int) string {
 
 func (m Model) renderHelp() string {
 	lines := []string{
-		m.styles.Title.Render("Help"),
+		m.styles.Title.Render(iconHelp + " Help"),
 		"j/k or arrows: move file selection",
-		"r refresh: reload git worktree changes",
-		"t themes: open theme picker",
-		"?: toggle this help",
-		"mouse select: click files or theme names",
-		"q/esc: quit or close overlay",
+		iconRefresh + " r refresh: reload git worktree changes",
+		iconTheme + " t themes: open theme picker",
+		iconHelp + " ?: toggle this help",
+		iconQuit + " q/esc: quit or close overlay",
 	}
 	return m.styles.PanelFocused.Width(min(m.width-2, 72)).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderThemePicker() string {
-	lines := []string{m.styles.Title.Render("Themes")}
+	lines := []string{m.styles.Title.Render(iconTheme + " Themes")}
 	for i, name := range m.themeNames {
 		line := name
 		if i == m.themeCursor {
@@ -382,17 +401,31 @@ func (m Model) layoutWidths() (int, int) {
 }
 
 func renderFileLine(styles theme.Styles, change gitview.FileChange) string {
-	status := string(change.Status)
-	if len(status) > 1 {
-		status = strings.ToUpper(status[:1])
-	}
+	status := statusIcon(change.Status)
 	counts := ""
 	if change.Binary {
-		counts = styles.Muted.Render(" binary")
+		counts = styles.Muted.Render(" " + iconBinary + " binary")
 	} else if change.Additions != 0 || change.Deletions != 0 {
 		counts = fmt.Sprintf(" %s %s", styles.Added.Render(fmt.Sprintf("+%d", change.Additions)), styles.Deleted.Render(fmt.Sprintf("-%d", change.Deletions)))
 	}
 	return fmt.Sprintf("%s %s%s", styles.Muted.Render(status), change.Path, counts)
+}
+
+func statusIcon(status gitview.ChangeStatus) string {
+	switch status {
+	case gitview.Added:
+		return iconAdded
+	case gitview.Modified:
+		return iconModified
+	case gitview.Deleted:
+		return iconDeleted
+	case gitview.Renamed:
+		return iconRenamed
+	case gitview.Untracked:
+		return iconUntracked
+	default:
+		return iconFile
+	}
 }
 
 func min(a, b int) int {
