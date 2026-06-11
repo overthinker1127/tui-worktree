@@ -121,3 +121,27 @@ func TestApplyLineStats(t *testing.T) {
 		t.Fatalf("ApplyLineStats() = %#v, want %#v", got, want)
 	}
 }
+
+func TestParseWorktreeList(t *testing.T) {
+	input := "" +
+		"worktree /repo\n" +
+		"HEAD abc123\n" +
+		"branch refs/heads/main\n" +
+		"\n" +
+		"worktree /repo/.worktrees/feature\n" +
+		"HEAD def456\n" +
+		"branch refs/heads/feature\n"
+
+	got, err := ParseWorktreeList(input, "/repo")
+	if err != nil {
+		t.Fatalf("ParseWorktreeList() error = %v", err)
+	}
+
+	want := []Worktree{
+		{Path: "/repo", Branch: "main", Head: "abc123", Current: true},
+		{Path: "/repo/.worktrees/feature", Branch: "feature", Head: "def456"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseWorktreeList() = %#v, want %#v", got, want)
+	}
+}

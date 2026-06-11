@@ -85,3 +85,24 @@ func TestRepositoryChangesWrapsStatusError(t *testing.T) {
 		t.Fatalf("Changes() error = %v, want git root context", err)
 	}
 }
+
+func TestRepositoryWorktrees(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"git rev-parse --show-toplevel": "/repo\n",
+		"git worktree list --porcelain": "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo/.worktrees/feature\nHEAD def456\nbranch refs/heads/feature\n",
+	}}
+	repo := Repository{Runner: runner}
+
+	got, err := repo.Worktrees(context.Background())
+	if err != nil {
+		t.Fatalf("Worktrees() error = %v", err)
+	}
+
+	want := []Worktree{
+		{Path: "/repo", Branch: "main", Head: "abc123", Current: true},
+		{Path: "/repo/.worktrees/feature", Branch: "feature", Head: "def456"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Worktrees() = %#v, want %#v", got, want)
+	}
+}

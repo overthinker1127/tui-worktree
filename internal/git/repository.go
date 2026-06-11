@@ -93,6 +93,22 @@ func (r Repository) Root(ctx context.Context) (string, error) {
 	return r.root(ctx)
 }
 
+func (r Repository) Worktrees(ctx context.Context) ([]Worktree, error) {
+	root, err := r.root(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.runner().Run(ctx, root, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %w", err)
+	}
+	worktrees, err := ParseWorktreeList(out, root)
+	if err != nil {
+		return nil, err
+	}
+	return worktrees, nil
+}
+
 func (r Repository) runner() Runner {
 	if r.Runner != nil {
 		return r.Runner

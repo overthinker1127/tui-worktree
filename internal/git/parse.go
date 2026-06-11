@@ -154,6 +154,35 @@ func ApplyLineStats(changes []FileChange, stats map[string]LineStat) []FileChang
 	return out
 }
 
+func ParseWorktreeList(output string, currentPath string) ([]Worktree, error) {
+	blocks := strings.Split(strings.TrimSpace(output), "\n\n")
+	worktrees := make([]Worktree, 0, len(blocks))
+	for _, block := range blocks {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
+		worktree := Worktree{}
+		for _, line := range strings.Split(block, "\n") {
+			switch {
+			case strings.HasPrefix(line, "worktree "):
+				worktree.Path = strings.TrimPrefix(line, "worktree ")
+			case strings.HasPrefix(line, "HEAD "):
+				worktree.Head = strings.TrimPrefix(line, "HEAD ")
+			case strings.HasPrefix(line, "branch "):
+				worktree.Branch = shortRef(strings.TrimPrefix(line, "branch "))
+			case line == "detached":
+				worktree.Branch = "detached"
+			}
+		}
+		if worktree.Path == "" {
+			return nil, fmt.Errorf("parse worktree block %q: missing path", block)
+		}
+		worktree.Current = worktree.Path == currentPath
+		worktrees = append(worktrees, worktree)
+	}
+	return worktrees, nil
+}
+
 func splitNUL(output string) []string {
 	raw := strings.Split(output, "\x00")
 	records := make([]string, 0, len(raw))
@@ -188,4 +217,8 @@ func finalPath(path string) string {
 		return after
 	}
 	return path
+}
+
+func shortRef(ref string) string {
+	return strings.TrimPrefix(ref, "refs/heads/")
 }
