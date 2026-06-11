@@ -9,4 +9,4 @@ current_version: v1
 ## Notes
 
 - Repository scaffolding has not been initialized yet.
-- Current workspace is not a git repository as of 2026-06-11T09:40:29+09:00.
+- Local git repository initialized on `main`.

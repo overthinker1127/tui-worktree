@@ -15,8 +15,8 @@
 ## Workspace
 
 - Branch: feat/v1-worktree-diff-tui
-- Base: blocked-current-workspace-is-not-a-git-repository
-- Isolation: required, but blocked until repository initialization or an existing base repository is provided
+- Base: main
+- Isolation: required
 - Created by: `planning worktree-diff-tui`
 
 ## Task Graph
@@ -118,6 +118,6 @@
 
 ## Notes
 
-- Execution is blocked until this directory is initialized as a git repository or the work moves into an existing repository with a known base branch.
+- Execution uses an isolated git worktree from `main`.
 - The design leaves module and binary names open. Use `worktree-diff-tui` unless the user chooses a different name before implementation.
 - MVP should shell out to local `git`; defer go-git migration until the read-only viewer proves its shape.
