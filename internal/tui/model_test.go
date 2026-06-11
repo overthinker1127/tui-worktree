@@ -89,9 +89,57 @@ func TestThemePickerAppliesTheme(t *testing.T) {
 	}
 }
 
+func TestViewShowsWorktreeSidebar(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "feature.go", Status: gitview.Added}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.changes = model.worktrees[0].Changes
+	model.refreshDiff()
+
+	view := model.View().Content
+	for _, want := range []string{"worktrees", "main", "feature", "main.go"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("worktree sidebar missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestTabSwitchesWorktree(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "feature.go", Status: gitview.Added}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.changes = model.worktrees[0].Changes
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(Model)
+
+	if got.SelectedWorktree().Branch != "feature" || got.Selected().Path != "feature.go" {
+		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.SelectedWorktree().Branch, got.Selected().Path)
+	}
+}
+
 func TestRefreshReloadsChanges(t *testing.T) {
 	model := testModel(t)
-	model.reload = func(context.Context) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Changes: []gitview.FileChange{{Path: "fresh.go", Status: gitview.Added}},
 			Diffs:   map[string]string{"fresh.go": "diff --git a/fresh.go b/fresh.go\n+fresh"},
@@ -119,7 +167,7 @@ func TestRefreshUsesConfiguredContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	model.context = ctx
-	model.reload = func(ctx context.Context) Snapshot {
+	model.reload = func(ctx context.Context, _ string) Snapshot {
 		if ctx.Err() == nil {
 			t.Fatal("reload context was not canceled")
 		}
@@ -141,7 +189,7 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	}
 	model.refreshDiff()
 
-	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 4}))
+	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
 	got := next.(Model).Selected()
 
 	if got.Path != "b.go" {
@@ -156,12 +204,12 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 		{Path: "b.go", Status: gitview.Modified},
 	}
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
-	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
 	}
 	model.refreshDiff()
 
-	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 4}))
+	next, cmd := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 9}))
 	if cmd == nil {
 		t.Fatal("mouse selection did not request lazy diff load")
 	}
@@ -220,7 +268,7 @@ func TestSelectionLoadsMissingDiffLazily(t *testing.T) {
 		{Path: "b.go", Status: gitview.Modified},
 	}
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
-	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
 	}
 	model.refreshDiff()
@@ -242,7 +290,7 @@ func TestStaleLazyDiffDoesNotOverwriteRefreshedSnapshot(t *testing.T) {
 	model := testModel(t)
 	model.changes = []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}}
 	model.diffs = map[string]string{}
-	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+stale"
 	}
 	model.refreshDiff()
@@ -290,7 +338,7 @@ func TestStaleRefreshDoesNotOverwriteNewerSnapshot(t *testing.T) {
 func TestRefreshStartInvalidatesPendingLazyDiff(t *testing.T) {
 	model := testModel(t)
 	model.diffs = map[string]string{}
-	model.loadDiff = func(context.Context, gitview.FileChange) string {
+	model.loadDiff = func(context.Context, string, gitview.FileChange) string {
 		return "diff --git a/a.go b/a.go\n+stale"
 	}
 	model.refreshDiff()

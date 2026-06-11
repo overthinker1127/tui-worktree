@@ -25,6 +25,11 @@ tasks:
     cmds:
       - go run ./cmd/worktree-diff-tui --help
 
+  install:
+    desc: Install worktree-diff-tui into GOBIN or GOPATH/bin.
+    cmds:
+      - go install ./cmd/worktree-diff-tui
+
   fmt:
     desc: Format Go source.
     cmds:

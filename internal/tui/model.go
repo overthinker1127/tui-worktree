@@ -14,26 +14,38 @@ import (
 )
 
 type Config struct {
-	Context    context.Context
-	ThemeName  string
-	Theme      theme.Styles
-	ThemeNames []string
-	Changes    []gitview.FileChange
-	Diff       string
-	Diffs      map[string]string
-	Error      error
-	LoadDiff   func(context.Context, gitview.FileChange) string
-	Reload     func(context.Context) Snapshot
+	Context          context.Context
+	ThemeName        string
+	Theme            theme.Styles
+	ThemeNames       []string
+	Worktrees        []WorktreeState
+	SelectedWorktree int
+	Changes          []gitview.FileChange
+	Diff             string
+	Diffs            map[string]string
+	Error            error
+	LoadDiff         func(context.Context, string, gitview.FileChange) string
+	Reload           func(context.Context, string) Snapshot
 }
 
 type Snapshot struct {
-	Changes []gitview.FileChange
-	Diffs   map[string]string
-	Error   error
+	Worktrees        []WorktreeState
+	SelectedWorktree int
+	Changes          []gitview.FileChange
+	Diffs            map[string]string
+	Error            error
+}
+
+type WorktreeState struct {
+	Worktree gitview.Worktree
+	Changes  []gitview.FileChange
+	Error    error
 }
 
 const (
 	iconFile      = "󰈙"
+	iconWorktree  = "󰙅"
+	iconBranch    = ""
 	iconModified  = ""
 	iconAdded     = ""
 	iconDeleted   = ""
@@ -52,6 +64,8 @@ type Model struct {
 	themeName         string
 	themeNames        []string
 	themeCursor       int
+	worktrees         []WorktreeState
+	selectedWorktree  int
 	changes           []gitview.FileChange
 	diffs             map[string]string
 	selected          int
@@ -63,8 +77,8 @@ type Model struct {
 	status            string
 	showHelp          bool
 	pickingTheme      bool
-	loadDiff          func(context.Context, gitview.FileChange) string
-	reload            func(context.Context) Snapshot
+	loadDiff          func(context.Context, string, gitview.FileChange) string
+	reload            func(context.Context, string) Snapshot
 	viewport          viewport.Model
 }
 
@@ -72,18 +86,20 @@ func NewModel(cfg Config) Model {
 	vp := viewport.New()
 	vp.SoftWrap = false
 	m := Model{
-		styles:     cfg.Theme,
-		context:    cfg.Context,
-		themeName:  cfg.ThemeName,
-		themeNames: cfg.ThemeNames,
-		changes:    cfg.Changes,
-		diffs:      cfg.Diffs,
-		err:        cfg.Error,
-		loadDiff:   cfg.LoadDiff,
-		reload:     cfg.Reload,
-		viewport:   vp,
-		width:      100,
-		height:     30,
+		styles:           cfg.Theme,
+		context:          cfg.Context,
+		themeName:        cfg.ThemeName,
+		themeNames:       cfg.ThemeNames,
+		worktrees:        cfg.Worktrees,
+		selectedWorktree: cfg.SelectedWorktree,
+		changes:          cfg.Changes,
+		diffs:            cfg.Diffs,
+		err:              cfg.Error,
+		loadDiff:         cfg.LoadDiff,
+		reload:           cfg.Reload,
+		viewport:         vp,
+		width:            100,
+		height:           30,
 	}
 	if m.themeName == "" {
 		m.themeName = "tokyonight"
@@ -97,8 +113,9 @@ func NewModel(cfg Config) Model {
 	if m.diffs == nil {
 		m.diffs = map[string]string{}
 	}
+	m.normalizeWorktrees()
 	if cfg.Diff != "" && len(cfg.Changes) > 0 {
-		m.diffs[cfg.Changes[0].Path] = cfg.Diff
+		m.diffs[m.diffKey(cfg.Changes[0])] = cfg.Diff
 	}
 	m.refreshDiff()
 	return m
@@ -122,8 +139,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.path != "" {
-			m.diffs[msg.path] = msg.diff
-			if selected := m.Selected(); selected.Path == msg.path {
+			key := msg.worktree + "\x00" + msg.path
+			m.diffs[key] = msg.diff
+			if selected := m.Selected(); selected.Path == msg.path && m.SelectedWorktree().Path == msg.worktree {
 				m.refreshDiff()
 			}
 		}
@@ -157,11 +175,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = true
 		case "t":
 			m.openThemePicker()
+		case "tab":
+			m.moveWorktree(1)
+			return m, m.ensureSelectedDiffCmd()
+		case "shift+tab":
+			m.moveWorktree(-1)
+			return m, m.ensureSelectedDiffCmd()
 		case "r":
 			m.revision++
 			m.refreshGeneration++
 			m.status = "Refreshing..."
-			return m, m.reloadCmd(m.refreshGeneration)
+			return m, m.reloadCmd(m.refreshGeneration, m.SelectedWorktree().Path)
 		case "j", "down":
 			m.moveSelection(1)
 			return m, m.ensureSelectedDiffCmd()
@@ -189,12 +213,15 @@ func (m Model) View() tea.View {
 	leftWidth, rightWidth := m.layoutWidths()
 	contentHeight := max(4, m.height-4)
 
-	files := m.renderFiles(leftWidth, contentHeight)
+	worktreeHeight := m.worktreePaneHeight(contentHeight)
+	worktrees := m.renderWorktrees(leftWidth, worktreeHeight)
+	files := m.renderFiles(leftWidth, max(4, contentHeight-worktreeHeight))
+	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
 	diff := m.renderDiff(rightWidth, contentHeight)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, files, diff)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
 	header := m.styles.Title.Render("Files changed")
-	footerText := fmt.Sprintf("%s theme:%s  j/k move  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
+	footerText := fmt.Sprintf("%s theme:%s  tab worktree  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
 	if m.status != "" {
 		footerText = m.status + "  " + footerText
 	}
@@ -223,6 +250,13 @@ func (m Model) Selected() gitview.FileChange {
 	return m.changes[m.selected]
 }
 
+func (m Model) SelectedWorktree() gitview.Worktree {
+	if len(m.worktrees) == 0 || m.selectedWorktree < 0 || m.selectedWorktree >= len(m.worktrees) {
+		return gitview.Worktree{}
+	}
+	return m.worktrees[m.selectedWorktree].Worktree
+}
+
 func (m *Model) moveSelection(delta int) {
 	if len(m.changes) == 0 {
 		return
@@ -235,6 +269,20 @@ func (m *Model) moveSelection(delta int) {
 		m.selected = len(m.changes) - 1
 	}
 	m.refreshDiff()
+}
+
+func (m *Model) moveWorktree(delta int) {
+	if len(m.worktrees) == 0 {
+		return
+	}
+	m.selectedWorktree += delta
+	if m.selectedWorktree < 0 {
+		m.selectedWorktree = len(m.worktrees) - 1
+	}
+	if m.selectedWorktree >= len(m.worktrees) {
+		m.selectedWorktree = 0
+	}
+	m.selectWorktree(m.selectedWorktree)
 }
 
 func (m *Model) openThemePicker() {
@@ -296,7 +344,19 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	if mouse.X >= leftWidth || mouse.Y < 3 {
 		return false
 	}
-	index := m.listOffset(m.height-4) + mouse.Y - 3
+	contentHeight := max(4, m.height-4)
+	worktreeHeight := m.worktreePaneHeight(contentHeight)
+	bodyY := mouse.Y - 1
+	if bodyY >= 0 && bodyY < worktreeHeight {
+		index := m.worktreeListOffset(worktreeHeight) + bodyY - 2
+		if index >= 0 && index < len(m.worktrees) {
+			m.selectWorktree(index)
+			return true
+		}
+		return false
+	}
+	fileY := bodyY - worktreeHeight
+	index := m.listOffset(max(4, contentHeight-worktreeHeight)) + fileY - 2
 	if index >= 0 && index < len(m.changes) {
 		m.selected = index
 		m.refreshDiff()
@@ -305,7 +365,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) bool {
 	return false
 }
 
-func (m Model) reloadCmd(generation int) tea.Cmd {
+func (m Model) reloadCmd(generation int, selectedWorktreePath string) tea.Cmd {
 	reload := m.reload
 	if reload == nil {
 		return func() tea.Msg {
@@ -313,7 +373,7 @@ func (m Model) reloadCmd(generation int) tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		return reloadMsg{generation: generation, snapshot: reload(m.context)}
+		return reloadMsg{generation: generation, snapshot: reload(m.context, selectedWorktreePath)}
 	}
 }
 
@@ -325,24 +385,32 @@ func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 	if selected.Path == "" {
 		return nil
 	}
+	if _, ok := m.diffs[m.diffKey(selected)]; ok {
+		return nil
+	}
 	if _, ok := m.diffs[selected.Path]; ok {
 		return nil
 	}
+	worktreePath := m.SelectedWorktree().Path
 	return func() tea.Msg {
 		return diffLoadedMsg{
 			revision: m.revision,
+			worktree: worktreePath,
 			path:     selected.Path,
-			diff:     m.loadDiff(m.context, selected),
+			diff:     m.loadDiff(m.context, worktreePath, selected),
 		}
 	}
 }
 
 func (m *Model) applySnapshot(snapshot Snapshot) {
 	m.revision++
+	m.worktrees = snapshot.Worktrees
+	m.selectedWorktree = snapshot.SelectedWorktree
 	m.changes = snapshot.Changes
 	m.diffs = snapshot.Diffs
 	m.err = snapshot.Error
 	m.status = "Refreshed"
+	m.normalizeWorktrees()
 	m.selected = min(m.selected, max(0, len(m.changes)-1))
 	if m.diffs == nil {
 		m.diffs = map[string]string{}
@@ -350,10 +418,41 @@ func (m *Model) applySnapshot(snapshot Snapshot) {
 	m.refreshDiff()
 }
 
+func (m *Model) normalizeWorktrees() {
+	if len(m.worktrees) == 0 {
+		m.worktrees = []WorktreeState{{
+			Worktree: gitview.Worktree{Path: ".", Branch: "current", Current: true},
+			Changes:  m.changes,
+			Error:    m.err,
+		}}
+		m.selectedWorktree = 0
+		return
+	}
+	if m.selectedWorktree < 0 || m.selectedWorktree >= len(m.worktrees) {
+		m.selectedWorktree = 0
+	}
+	m.changes = m.worktrees[m.selectedWorktree].Changes
+	if m.worktrees[m.selectedWorktree].Error != nil {
+		m.err = m.worktrees[m.selectedWorktree].Error
+	}
+}
+
+func (m *Model) selectWorktree(index int) {
+	if index < 0 || index >= len(m.worktrees) {
+		return
+	}
+	m.selectedWorktree = index
+	m.changes = m.worktrees[index].Changes
+	m.err = m.worktrees[index].Error
+	m.selected = 0
+	m.refreshDiff()
+}
+
 func (m *Model) resizeViewport() {
 	_, rightWidth := m.layoutWidths()
-	m.viewport.SetWidth(max(10, rightWidth-4))
-	m.viewport.SetHeight(max(3, m.height-8))
+	contentHeight := max(4, m.height-4)
+	m.viewport.SetWidth(max(10, panelInnerWidth(rightWidth)))
+	m.viewport.SetHeight(max(3, panelInnerHeight(contentHeight)-1))
 }
 
 func (m *Model) refreshDiff() {
@@ -362,27 +461,70 @@ func (m *Model) refreshDiff() {
 		m.viewport.SetContent(m.styles.Muted.Render("No changes in this worktree."))
 		return
 	}
-	diff := m.diffs[m.changes[m.selected].Path]
+	diff := m.diffs[m.diffKey(m.changes[m.selected])]
+	if diff == "" {
+		diff = m.diffs[m.changes[m.selected].Path]
+	}
 	if diff == "" {
 		diff = fmt.Sprintf("No diff loaded for %s", m.changes[m.selected].Path)
 	}
-	m.viewport.SetContent(m.renderDiffContent(diff))
+	m.viewport.SetContent(m.renderDiffContent(diff, m.viewport.Width()))
 	m.viewport.GotoTop()
+}
+
+func (m Model) renderWorktrees(width, height int) string {
+	lines := make([]string, 0, len(m.worktrees)+1)
+	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d worktrees", iconWorktree, len(m.worktrees))))
+	contentWidth := panelInnerWidth(width)
+	visibleRows := max(1, panelInnerHeight(height)-2)
+	offset := m.worktreeListOffset(height)
+	end := min(len(m.worktrees), offset+visibleRows)
+	for i, worktree := range m.worktrees[offset:end] {
+		index := offset + i
+		line := renderWorktreeLine(m.styles, worktree)
+		if index == m.selectedWorktree {
+			line = m.styles.FileSelected.Width(contentWidth).Render(line)
+		} else {
+			line = m.styles.FileItem.Width(contentWidth).Render(line)
+		}
+		lines = append(lines, line)
+	}
+	if end < len(m.worktrees) {
+		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.worktrees)-end)))
+	}
+	return m.styles.PanelFocused.Width(contentWidth).Height(panelInnerHeight(height)).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) worktreeListOffset(height int) int {
+	if len(m.worktrees) == 0 {
+		return 0
+	}
+	visibleRows := max(1, panelInnerHeight(height)-2)
+	if m.selectedWorktree < visibleRows {
+		return 0
+	}
+	offset := m.selectedWorktree - visibleRows + 1
+	maxOffset := max(0, len(m.worktrees)-visibleRows)
+	if offset > maxOffset {
+		return maxOffset
+	}
+	return offset
 }
 
 func (m Model) renderFiles(width, height int) string {
 	lines := make([]string, 0, len(m.changes)+1)
 	lines = append(lines, m.styles.Header.Render(fmt.Sprintf("%s %d files", iconFile, len(m.changes))))
-	visibleRows := max(1, height-4)
+	contentWidth := panelInnerWidth(width)
+	visibleRows := max(1, panelInnerHeight(height)-2)
 	offset := m.listOffset(height)
 	end := min(len(m.changes), offset+visibleRows)
 	for i, change := range m.changes[offset:end] {
 		index := offset + i
 		line := renderFileLine(m.styles, change)
 		if index == m.selected {
-			line = m.styles.FileSelected.Width(max(1, width-4)).Render(line)
+			line = m.styles.FileSelected.Width(contentWidth).Render(line)
 		} else {
-			line = m.styles.FileItem.Width(max(1, width-4)).Render(line)
+			line = m.styles.FileItem.Width(contentWidth).Render(line)
 		}
 		lines = append(lines, line)
 	}
@@ -391,14 +533,14 @@ func (m Model) renderFiles(width, height int) string {
 	} else if end < len(m.changes) {
 		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
 	}
-	return m.styles.PanelFocused.Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return m.styles.PanelFocused.Width(contentWidth).Height(panelInnerHeight(height)).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) listOffset(height int) int {
 	if len(m.changes) == 0 {
 		return 0
 	}
-	visibleRows := max(1, height-4)
+	visibleRows := max(1, panelInnerHeight(height)-2)
 	if m.selected < visibleRows {
 		return 0
 	}
@@ -416,12 +558,13 @@ func (m Model) renderDiff(width, height int) string {
 		selected = change.Path
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, m.styles.Header.Render(selected), m.viewport.View())
-	return m.styles.Panel.Width(width).Height(height).Render(content)
+	return m.styles.Panel.Width(panelInnerWidth(width)).Height(panelInnerHeight(height)).Render(content)
 }
 
 func (m Model) renderHelp() string {
 	lines := []string{
 		m.styles.Title.Render(iconHelp + " Help"),
+		"tab / shift+tab: switch worktree",
 		"j/k or arrows: move file selection",
 		iconRefresh + " r refresh: reload git worktree changes",
 		iconTheme + " t themes: open theme picker",
@@ -443,20 +586,20 @@ func (m Model) renderThemePicker() string {
 	return m.styles.PanelFocused.Width(34).Render(strings.Join(lines, "\n"))
 }
 
-func (m Model) renderDiffContent(diff string) string {
+func (m Model) renderDiffContent(diff string, width int) string {
 	lines := strings.Split(diff, "\n")
 	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "diff --git"):
-			lines[i] = m.styles.DiffFileHeader.Render(line)
+			lines[i] = m.styles.DiffFileHeader.Width(width).Render(line)
 		case strings.HasPrefix(line, "@@"):
-			lines[i] = m.styles.DiffHunk.Render(line)
+			lines[i] = m.styles.DiffHunk.Width(width).Render(line)
 		case strings.HasPrefix(line, "+"):
-			lines[i] = m.styles.DiffAddition.Render(line)
+			lines[i] = m.styles.DiffAddition.Width(width).Render(line)
 		case strings.HasPrefix(line, "-"):
-			lines[i] = m.styles.DiffDeletion.Render(line)
+			lines[i] = m.styles.DiffDeletion.Width(width).Render(line)
 		default:
-			lines[i] = m.styles.Diff.Render(line)
+			lines[i] = m.styles.Diff.Width(width).Render(line)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -467,9 +610,49 @@ func (m Model) layoutWidths() (int, int) {
 	if width <= 0 {
 		width = 100
 	}
+	if width < 64 {
+		left := max(22, width/3)
+		return left, max(24, width-left)
+	}
 	left := max(28, min(44, width/3))
-	right := max(30, width-left-2)
+	right := max(30, width-left)
 	return left, right
+}
+
+func (m Model) worktreePaneHeight(contentHeight int) int {
+	if len(m.worktrees) <= 1 {
+		return 5
+	}
+	return min(max(6, len(m.worktrees)+4), max(6, contentHeight/3))
+}
+
+func (m Model) diffKey(change gitview.FileChange) string {
+	return m.SelectedWorktree().Path + "\x00" + change.Path
+}
+
+func renderWorktreeLine(styles theme.Styles, state WorktreeState) string {
+	worktree := state.Worktree
+	name := worktree.Branch
+	if name == "" {
+		name = worktree.Path
+	}
+	marker := " "
+	if worktree.Current {
+		marker = "•"
+	}
+	summary := fmt.Sprintf("%d", len(state.Changes))
+	if state.Error != nil {
+		summary = "!"
+	}
+	return fmt.Sprintf("%s %s %s %s", styles.Muted.Render(marker), styles.Muted.Render(iconBranch), name, styles.Muted.Render(summary))
+}
+
+func panelInnerWidth(width int) int {
+	return max(1, width-2)
+}
+
+func panelInnerHeight(height int) int {
+	return max(1, height-2)
 }
 
 func renderFileLine(styles theme.Styles, change gitview.FileChange) string {
@@ -530,6 +713,7 @@ type reloadMsg struct {
 
 type diffLoadedMsg struct {
 	revision int
+	worktree string
 	path     string
 	diff     string
 }

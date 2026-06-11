@@ -19,6 +19,13 @@ type FileChange struct {
 	Binary    bool
 }
 
+type Worktree struct {
+	Path    string
+	Branch  string
+	Head    string
+	Current bool
+}
+
 type LineStat struct {
 	Additions int
 	Deletions int

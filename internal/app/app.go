@@ -24,6 +24,10 @@ type Repository interface {
 	Diff(context.Context, gitview.FileChange) (string, error)
 }
 
+type WorktreeRepository interface {
+	Worktrees(context.Context) ([]gitview.Worktree, error)
+}
+
 func ParseArgs(args []string) (Options, error) {
 	fs := flag.NewFlagSet("tui-worktree", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -56,38 +60,89 @@ func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model
 		preset, _ = theme.Preset("tokyonight")
 	}
 
-	snapshot := loadSnapshot(ctx, repo)
+	snapshot := loadSnapshot(ctx, repo, "")
 	if snapshot.Error == nil {
 		snapshot.Error = themeErr
 	}
 	return tui.NewModel(tui.Config{
-		Context:    ctx,
-		ThemeName:  preset.Name,
-		Theme:      theme.NewStyles(preset),
-		ThemeNames: theme.Names(),
-		Changes:    snapshot.Changes,
-		Diffs:      snapshot.Diffs,
-		Error:      snapshot.Error,
-		LoadDiff: func(ctx context.Context, change gitview.FileChange) string {
-			return loadDiff(ctx, repo, change)
+		Context:          ctx,
+		ThemeName:        preset.Name,
+		Theme:            theme.NewStyles(preset),
+		ThemeNames:       theme.Names(),
+		Worktrees:        snapshot.Worktrees,
+		SelectedWorktree: snapshot.SelectedWorktree,
+		Changes:          snapshot.Changes,
+		Diffs:            snapshot.Diffs,
+		Error:            snapshot.Error,
+		LoadDiff: func(ctx context.Context, worktreePath string, change gitview.FileChange) string {
+			return loadDiff(ctx, repositoryAt(repo, worktreePath), change)
 		},
-		Reload: func(ctx context.Context) tui.Snapshot {
-			return loadSnapshot(ctx, repo)
+		Reload: func(ctx context.Context, selectedWorktreePath string) tui.Snapshot {
+			return loadSnapshot(ctx, repo, selectedWorktreePath)
 		},
 	})
 }
 
-func loadSnapshot(ctx context.Context, repo Repository) tui.Snapshot {
-	changes, err := repo.Changes(ctx)
+func loadSnapshot(ctx context.Context, repo Repository, selectedWorktreePath string) tui.Snapshot {
+	worktrees, err := loadWorktrees(ctx, repo)
 	if err != nil {
 		return tui.Snapshot{Error: err}
 	}
 
+	states := make([]tui.WorktreeState, 0, len(worktrees))
+	selected := 0
+	for i, worktree := range worktrees {
+		if worktree.Path == selectedWorktreePath || selectedWorktreePath == "" && worktree.Current {
+			selected = i
+		}
+		changes, err := repositoryAt(repo, worktree.Path).Changes(ctx)
+		states = append(states, tui.WorktreeState{
+			Worktree: worktree,
+			Changes:  changes,
+			Error:    err,
+		})
+	}
+	if len(states) == 0 {
+		return tui.Snapshot{}
+	}
+
+	changes := states[selected].Changes
 	diffs := make(map[string]string, min(1, len(changes)))
 	if len(changes) > 0 {
-		diffs[changes[0].Path] = loadDiff(ctx, repo, changes[0])
+		key := states[selected].Worktree.Path + "\x00" + changes[0].Path
+		diffs[key] = loadDiff(ctx, repositoryAt(repo, states[selected].Worktree.Path), changes[0])
 	}
-	return tui.Snapshot{Changes: changes, Diffs: diffs}
+	return tui.Snapshot{
+		Worktrees:        states,
+		SelectedWorktree: selected,
+		Changes:          changes,
+		Diffs:            diffs,
+		Error:            states[selected].Error,
+	}
+}
+
+func loadWorktrees(ctx context.Context, repo Repository) ([]gitview.Worktree, error) {
+	if worktreeRepo, ok := repo.(WorktreeRepository); ok {
+		return worktreeRepo.Worktrees(ctx)
+	}
+	return []gitview.Worktree{{Path: ".", Branch: "current", Current: true}}, nil
+}
+
+func repositoryAt(repo Repository, worktreePath string) Repository {
+	if worktreePath == "" {
+		return repo
+	}
+	switch typed := repo.(type) {
+	case gitview.Repository:
+		typed.Dir = worktreePath
+		return typed
+	case *gitview.Repository:
+		next := *typed
+		next.Dir = worktreePath
+		return next
+	default:
+		return repo
+	}
 }
 
 func loadDiff(ctx context.Context, repo Repository, change gitview.FileChange) string {

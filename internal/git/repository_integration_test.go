@@ -135,6 +135,35 @@ func TestRepositoryDiffWorksFromSubdirectory(t *testing.T) {
 	}
 }
 
+func TestRepositoryListsLinkedWorktrees(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "init")
+
+	linked := filepath.Join(t.TempDir(), "feature")
+	runGit(t, dir, "worktree", "add", "-b", "feature", linked)
+
+	repo := Repository{Dir: dir}
+	worktrees, err := repo.Worktrees(context.Background())
+	if err != nil {
+		t.Fatalf("Worktrees() error = %v", err)
+	}
+
+	branches := map[string]bool{}
+	for _, worktree := range worktrees {
+		branches[worktree.Branch] = true
+	}
+	if len(worktrees) != 2 || !branches["main"] || !branches["feature"] {
+		t.Fatalf("Worktrees() = %#v, want main and feature", worktrees)
+	}
+}
+
 func TestRepositoryChangesInUnbornRepo(t *testing.T) {
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
