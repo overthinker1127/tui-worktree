@@ -49,15 +49,20 @@ task check
 - `kanagawa-wave`
 - `kanagawa-dragon`
 - `catppuccin`
+- `catppuccin-frappe`
+- `catppuccin-latte`
 - `catppuccin-mocha`
 - `catppuccin-macchiato`
 - `gruvbox`
 - `gruvbox-dark`
+- `gruvbox-light`
 - `solarized`
 - `solarized-dark`
+- `solarized-light`
 - `nord`
 - `dracula`
 - `rose-pine`
+- `rose-pine-dawn`
 - `rose-pine-moon`
 - `one-dark`
 - `vscode`
@@ -66,6 +71,17 @@ task check
 - `everforest`
 - `ayu`
 - `ayu-mirage`
+- `github-dark`
+- `github-light`
+- `modus-vivendi`
+- `modus-operandi`
+- `nightfox`
+- `dayfox`
+- `carbonfox`
+- `material-ocean`
+- `palenight`
+- `oxocarbon`
+- `zenburn`
 
 ## Keys
 

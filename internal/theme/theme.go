@@ -74,8 +74,10 @@ var presets = map[string]Theme{
 		Panel:         "#0d0c0c",
 		PanelSelected: "#1d1c19",
 	},
-	"catppuccin":       catppuccinMocha(),
-	"catppuccin-mocha": catppuccinMocha(),
+	"catppuccin":        catppuccinMocha(),
+	"catppuccin-frappe": catppuccinFrappe(),
+	"catppuccin-latte":  catppuccinLatte(),
+	"catppuccin-mocha":  catppuccinMocha(),
 	"catppuccin-macchiato": {
 		Name:          "catppuccin-macchiato",
 		Background:    "#24273a",
@@ -90,10 +92,12 @@ var presets = map[string]Theme{
 		Panel:         "#1e2030",
 		PanelSelected: "#363a4f",
 	},
-	"gruvbox":        gruvboxDark(),
-	"gruvbox-dark":   gruvboxDark(),
-	"solarized":      solarizedDark(),
-	"solarized-dark": solarizedDark(),
+	"gruvbox":         gruvboxDark(),
+	"gruvbox-dark":    gruvboxDark(),
+	"gruvbox-light":   gruvboxLight(),
+	"solarized":       solarizedDark(),
+	"solarized-dark":  solarizedDark(),
+	"solarized-light": solarizedLight(),
 	"nord": {
 		Name:          "nord",
 		Background:    "#2e3440",
@@ -122,7 +126,8 @@ var presets = map[string]Theme{
 		Panel:         "#21222c",
 		PanelSelected: "#44475a",
 	},
-	"rose-pine": rosePine(),
+	"rose-pine":      rosePine(),
+	"rose-pine-dawn": rosePineDawn(),
 	"rose-pine-moon": {
 		Name:          "rose-pine-moon",
 		Background:    "#232136",
@@ -181,8 +186,19 @@ var presets = map[string]Theme{
 		Panel:         "#232a2e",
 		PanelSelected: "#343f44",
 	},
-	"ayu":        ayuMirage(),
-	"ayu-mirage": ayuMirage(),
+	"ayu":            ayuMirage(),
+	"ayu-mirage":     ayuMirage(),
+	"github-dark":    githubDark(),
+	"github-light":   githubLight(),
+	"modus-vivendi":  modusVivendi(),
+	"modus-operandi": modusOperandi(),
+	"nightfox":       nightfox(),
+	"dayfox":         dayfox(),
+	"carbonfox":      carbonfox(),
+	"material-ocean": materialOcean(),
+	"palenight":      palenight(),
+	"oxocarbon":      oxocarbon(),
+	"zenburn":        zenburn(),
 }
 
 func tokyoNight() Theme {
@@ -236,6 +252,42 @@ func catppuccinMocha() Theme {
 	}
 }
 
+func catppuccinFrappe() Theme {
+	return Theme{
+		Name:          "catppuccin-frappe",
+		Background:    "#303446",
+		Foreground:    "#c6d0f5",
+		Muted:         "#737994",
+		Accent:        "#8caaee",
+		Border:        "#51576d",
+		Selection:     "#626880",
+		Added:         "#a6d189",
+		Deleted:       "#e78284",
+		Error:         "#e78284",
+		Panel:         "#292c3c",
+		PanelSelected: "#414559",
+	}
+}
+
+func catppuccinLatte() Theme {
+	return Theme{
+		Name:              "catppuccin-latte",
+		Background:        "#eff1f5",
+		Foreground:        "#4c4f69",
+		Muted:             "#8c8fa1",
+		Accent:            "#1e66f5",
+		Border:            "#ccd0da",
+		Selection:         "#dce0e8",
+		Added:             "#40a02b",
+		AddedBackground:   "#d7f3d0",
+		Deleted:           "#d20f39",
+		DeletedBackground: "#f5d6dc",
+		Error:             "#d20f39",
+		Panel:             "#e6e9ef",
+		PanelSelected:     "#dce0e8",
+	}
+}
+
 func gruvboxDark() Theme {
 	return Theme{
 		Name:          "gruvbox-dark",
@@ -250,6 +302,25 @@ func gruvboxDark() Theme {
 		Error:         "#fb4934",
 		Panel:         "#1d2021",
 		PanelSelected: "#32302f",
+	}
+}
+
+func gruvboxLight() Theme {
+	return Theme{
+		Name:              "gruvbox-light",
+		Background:        "#fbf1c7",
+		Foreground:        "#3c3836",
+		Muted:             "#928374",
+		Accent:            "#076678",
+		Border:            "#d5c4a1",
+		Selection:         "#ebdbb2",
+		Added:             "#79740e",
+		AddedBackground:   "#e9edc7",
+		Deleted:           "#9d0006",
+		DeletedBackground: "#f1d2c2",
+		Error:             "#9d0006",
+		Panel:             "#f2e5bc",
+		PanelSelected:     "#ebdbb2",
 	}
 }
 
@@ -270,6 +341,25 @@ func solarizedDark() Theme {
 	}
 }
 
+func solarizedLight() Theme {
+	return Theme{
+		Name:              "solarized-light",
+		Background:        "#fdf6e3",
+		Foreground:        "#657b83",
+		Muted:             "#93a1a1",
+		Accent:            "#268bd2",
+		Border:            "#eee8d5",
+		Selection:         "#eee8d5",
+		Added:             "#859900",
+		AddedBackground:   "#e5edc8",
+		Deleted:           "#dc322f",
+		DeletedBackground: "#f5d0ca",
+		Error:             "#dc322f",
+		Panel:             "#eee8d5",
+		PanelSelected:     "#e4ddc9",
+	}
+}
+
 func rosePine() Theme {
 	return Theme{
 		Name:          "rose-pine",
@@ -284,6 +374,25 @@ func rosePine() Theme {
 		Error:         "#eb6f92",
 		Panel:         "#1f1d2e",
 		PanelSelected: "#26233a",
+	}
+}
+
+func rosePineDawn() Theme {
+	return Theme{
+		Name:              "rose-pine-dawn",
+		Background:        "#faf4ed",
+		Foreground:        "#575279",
+		Muted:             "#9893a5",
+		Accent:            "#907aa9",
+		Border:            "#dfdad9",
+		Selection:         "#f2e9e1",
+		Added:             "#286983",
+		AddedBackground:   "#dcebec",
+		Deleted:           "#b4637a",
+		DeletedBackground: "#f1d9df",
+		Error:             "#b4637a",
+		Panel:             "#fffaf3",
+		PanelSelected:     "#f2e9e1",
 	}
 }
 
@@ -318,5 +427,200 @@ func ayuMirage() Theme {
 		Error:         "#ff3333",
 		Panel:         "#1a1f29",
 		PanelSelected: "#2f3b54",
+	}
+}
+
+func githubDark() Theme {
+	return Theme{
+		Name:              "github-dark",
+		Background:        "#0d1117",
+		Foreground:        "#c9d1d9",
+		Muted:             "#8b949e",
+		Accent:            "#58a6ff",
+		Border:            "#30363d",
+		Selection:         "#1f6feb",
+		Added:             "#3fb950",
+		AddedBackground:   "#033a16",
+		Deleted:           "#f85149",
+		DeletedBackground: "#490202",
+		Error:             "#f85149",
+		Panel:             "#161b22",
+		PanelSelected:     "#21262d",
+	}
+}
+
+func githubLight() Theme {
+	return Theme{
+		Name:              "github-light",
+		Background:        "#ffffff",
+		Foreground:        "#24292f",
+		Muted:             "#57606a",
+		Accent:            "#0969da",
+		Border:            "#d0d7de",
+		Selection:         "#ddf4ff",
+		Added:             "#1a7f37",
+		AddedBackground:   "#dafbe1",
+		Deleted:           "#cf222e",
+		DeletedBackground: "#ffebe9",
+		Error:             "#cf222e",
+		Panel:             "#f6f8fa",
+		PanelSelected:     "#eaeef2",
+	}
+}
+
+func modusVivendi() Theme {
+	return Theme{
+		Name:          "modus-vivendi",
+		Background:    "#000000",
+		Foreground:    "#ffffff",
+		Muted:         "#989898",
+		Accent:        "#00bcff",
+		Border:        "#646464",
+		Selection:     "#203448",
+		Added:         "#44bc44",
+		Deleted:       "#ff5f59",
+		Error:         "#ff5f59",
+		Panel:         "#1e1e1e",
+		PanelSelected: "#2a2a2a",
+	}
+}
+
+func modusOperandi() Theme {
+	return Theme{
+		Name:              "modus-operandi",
+		Background:        "#ffffff",
+		Foreground:        "#000000",
+		Muted:             "#595959",
+		Accent:            "#0031a9",
+		Border:            "#c4c4c4",
+		Selection:         "#d8eaff",
+		Added:             "#006800",
+		AddedBackground:   "#dff6dd",
+		Deleted:           "#a60000",
+		DeletedBackground: "#ffd8d8",
+		Error:             "#a60000",
+		Panel:             "#f2f2f2",
+		PanelSelected:     "#e6e6e6",
+	}
+}
+
+func nightfox() Theme {
+	return Theme{
+		Name:          "nightfox",
+		Background:    "#192330",
+		Foreground:    "#cdcecf",
+		Muted:         "#71839b",
+		Accent:        "#719cd6",
+		Border:        "#39506d",
+		Selection:     "#2b3b51",
+		Added:         "#81b29a",
+		Deleted:       "#c94f6d",
+		Error:         "#c94f6d",
+		Panel:         "#131a24",
+		PanelSelected: "#212e3f",
+	}
+}
+
+func dayfox() Theme {
+	return Theme{
+		Name:              "dayfox",
+		Background:        "#f6f2ee",
+		Foreground:        "#3d2b5a",
+		Muted:             "#8a739a",
+		Accent:            "#287980",
+		Border:            "#d8d0c7",
+		Selection:         "#e7d2be",
+		Added:             "#396847",
+		AddedBackground:   "#dce8d9",
+		Deleted:           "#a5222f",
+		DeletedBackground: "#ecd6d8",
+		Error:             "#a5222f",
+		Panel:             "#eee6de",
+		PanelSelected:     "#e7d2be",
+	}
+}
+
+func carbonfox() Theme {
+	return Theme{
+		Name:          "carbonfox",
+		Background:    "#161616",
+		Foreground:    "#f2f4f8",
+		Muted:         "#6f6f6f",
+		Accent:        "#78a9ff",
+		Border:        "#393939",
+		Selection:     "#2a2a2a",
+		Added:         "#42be65",
+		Deleted:       "#ee5396",
+		Error:         "#ee5396",
+		Panel:         "#0f0f0f",
+		PanelSelected: "#262626",
+	}
+}
+
+func materialOcean() Theme {
+	return Theme{
+		Name:          "material-ocean",
+		Background:    "#0f111a",
+		Foreground:    "#a6accd",
+		Muted:         "#676e95",
+		Accent:        "#82aaff",
+		Border:        "#292d3e",
+		Selection:     "#1f2233",
+		Added:         "#c3e88d",
+		Deleted:       "#ff5370",
+		Error:         "#ff5370",
+		Panel:         "#090b10",
+		PanelSelected: "#1a1c25",
+	}
+}
+
+func palenight() Theme {
+	return Theme{
+		Name:          "palenight",
+		Background:    "#292d3e",
+		Foreground:    "#a6accd",
+		Muted:         "#676e95",
+		Accent:        "#82aaff",
+		Border:        "#444267",
+		Selection:     "#34324a",
+		Added:         "#c3e88d",
+		Deleted:       "#f07178",
+		Error:         "#f07178",
+		Panel:         "#202331",
+		PanelSelected: "#34324a",
+	}
+}
+
+func oxocarbon() Theme {
+	return Theme{
+		Name:          "oxocarbon",
+		Background:    "#161616",
+		Foreground:    "#f2f4f8",
+		Muted:         "#7b7c7e",
+		Accent:        "#33b1ff",
+		Border:        "#393939",
+		Selection:     "#262626",
+		Added:         "#25be6a",
+		Deleted:       "#ee5396",
+		Error:         "#ee5396",
+		Panel:         "#0f0f0f",
+		PanelSelected: "#262626",
+	}
+}
+
+func zenburn() Theme {
+	return Theme{
+		Name:          "zenburn",
+		Background:    "#3f3f3f",
+		Foreground:    "#dcdccc",
+		Muted:         "#7f9f7f",
+		Accent:        "#8cd0d3",
+		Border:        "#5f5f5f",
+		Selection:     "#4f4f4f",
+		Added:         "#7f9f7f",
+		Deleted:       "#cc9393",
+		Error:         "#cc9393",
+		Panel:         "#383838",
+		PanelSelected: "#4f4f4f",
 	}
 }
