@@ -55,6 +55,7 @@ type Model struct {
 	changes      []gitview.FileChange
 	diffs        map[string]string
 	selected     int
+	revision     int
 	width        int
 	height       int
 	err          error
@@ -113,6 +114,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applySnapshot(msg.snapshot)
 		return m, m.ensureSelectedDiffCmd()
 	case diffLoadedMsg:
+		if msg.revision != m.revision {
+			return m, nil
+		}
 		if msg.path != "" {
 			m.diffs[msg.path] = msg.diff
 			if selected := m.Selected(); selected.Path == msg.path {
@@ -320,13 +324,15 @@ func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return diffLoadedMsg{
-			path: selected.Path,
-			diff: m.loadDiff(m.context, selected),
+			revision: m.revision,
+			path:     selected.Path,
+			diff:     m.loadDiff(m.context, selected),
 		}
 	}
 }
 
 func (m *Model) applySnapshot(snapshot Snapshot) {
+	m.revision++
 	m.changes = snapshot.Changes
 	m.diffs = snapshot.Diffs
 	m.err = snapshot.Error
@@ -516,6 +522,7 @@ type reloadMsg struct {
 }
 
 type diffLoadedMsg struct {
-	path string
-	diff string
+	revision int
+	path     string
+	diff     string
 }

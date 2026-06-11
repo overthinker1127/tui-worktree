@@ -238,6 +238,32 @@ func TestSelectionLoadsMissingDiffLazily(t *testing.T) {
 	}
 }
 
+func TestStaleLazyDiffDoesNotOverwriteRefreshedSnapshot(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}}
+	model.diffs = map[string]string{}
+	model.loadDiff = func(_ context.Context, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+stale"
+	}
+	model.refreshDiff()
+
+	cmd := model.ensureSelectedDiffCmd()
+	if cmd == nil {
+		t.Fatal("expected lazy diff command")
+	}
+	model.applySnapshot(Snapshot{
+		Changes: []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
+		Diffs:   map[string]string{"a.go": "diff --git a/a.go b/a.go\n+fresh"},
+	})
+
+	next, _ := model.Update(cmd())
+	got := next.(Model)
+	view := got.View().Content
+	if strings.Contains(view, "stale") || !strings.Contains(view, "fresh") {
+		t.Fatalf("stale lazy diff overwrote refreshed snapshot: %q", view)
+	}
+}
+
 func testModel(t *testing.T) Model {
 	t.Helper()
 	tm, err := theme.Preset("tokyonight")
