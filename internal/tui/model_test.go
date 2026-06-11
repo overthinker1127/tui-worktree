@@ -90,6 +90,33 @@ func TestThemePickerAppliesTheme(t *testing.T) {
 	}
 }
 
+func TestThemePickerSavesTheme(t *testing.T) {
+	model := testModel(t)
+	model.themeNames = []string{"tokyonight", "kanagawa"}
+	var saved string
+	model.saveTheme = func(name string) error {
+		saved = name
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+
+	if saved != "kanagawa" {
+		t.Fatalf("saved theme = %q, want kanagawa", saved)
+	}
+}
+
+func TestFooterOmitsCurrentThemeName(t *testing.T) {
+	model := testModel(t)
+
+	view := model.View().Content
+	if strings.Contains(view, "theme:") {
+		t.Fatalf("footer should not show current theme name: %q", view)
+	}
+}
+
 func TestViewShowsWorktreeSidebar(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{

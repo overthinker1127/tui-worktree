@@ -26,6 +26,7 @@ type Config struct {
 	Error            error
 	LoadDiff         func(context.Context, string, gitview.FileChange) string
 	Reload           func(context.Context, string) Snapshot
+	SaveTheme        func(string) error
 }
 
 type Snapshot struct {
@@ -79,6 +80,7 @@ type Model struct {
 	pickingTheme      bool
 	loadDiff          func(context.Context, string, gitview.FileChange) string
 	reload            func(context.Context, string) Snapshot
+	saveTheme         func(string) error
 	viewport          viewport.Model
 }
 
@@ -97,6 +99,7 @@ func NewModel(cfg Config) Model {
 		err:              cfg.Error,
 		loadDiff:         cfg.LoadDiff,
 		reload:           cfg.Reload,
+		saveTheme:        cfg.SaveTheme,
 		viewport:         vp,
 		width:            100,
 		height:           30,
@@ -224,7 +227,7 @@ func (m Model) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
 	header := m.styles.Title.Render("Files changed")
-	footerText := fmt.Sprintf("%s theme:%s  1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconTheme, m.themeName, iconRefresh, iconTheme, iconHelp, iconQuit)
+	footerText := fmt.Sprintf("1-9 worktree  tab next  j/k file  %s r refresh  %s t themes  %s ? help  %s q quit", iconRefresh, iconTheme, iconHelp, iconQuit)
 	if m.status != "" {
 		footerText = m.status + "  " + footerText
 	}
@@ -342,6 +345,11 @@ func (m *Model) applyThemeCursor() {
 	m.themeName = name
 	m.styles = theme.NewStyles(preset)
 	m.status = fmt.Sprintf("Theme changed to %s", name)
+	if m.saveTheme != nil {
+		if err := m.saveTheme(name); err != nil {
+			m.status = fmt.Sprintf("Theme changed to %s; save failed: %s", name, err)
+		}
+	}
 	m.refreshDiff()
 }
 

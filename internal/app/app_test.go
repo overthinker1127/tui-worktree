@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,6 +37,51 @@ func TestParseArgs(t *testing.T) {
 	}
 	if got.Theme != "kanagawa" || got.Dir != "/tmp/repo" {
 		t.Fatalf("ParseArgs() = %#v", got)
+	}
+}
+
+func TestParseArgsLeavesThemeEmptyWhenNotProvided(t *testing.T) {
+	got, err := ParseArgs(nil)
+	if err != nil {
+		t.Fatalf("ParseArgs() error = %v", err)
+	}
+	if got.Theme != "" {
+		t.Fatalf("Theme = %q, want empty for config fallback", got.Theme)
+	}
+}
+
+func TestSaveLoadConfig(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	if err := SaveConfig(UserConfig{Theme: "kanagawa"}); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	got, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got.Theme != "kanagawa" {
+		t.Fatalf("Theme = %q, want kanagawa", got.Theme)
+	}
+
+	path := filepath.Join(configHome, "tui-worktree", "config.json")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("config file missing at %s: %v", path, err)
+	}
+}
+
+func TestResolveThemeUsesConfigUnlessFlagProvided(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := SaveConfig(UserConfig{Theme: "gruvbox"}); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	if got := ResolveTheme(Options{}); got != "gruvbox" {
+		t.Fatalf("ResolveTheme() = %q, want gruvbox", got)
+	}
+	if got := ResolveTheme(Options{Theme: "kanagawa"}); got != "kanagawa" {
+		t.Fatalf("ResolveTheme(flag) = %q, want kanagawa", got)
 	}
 }
 
