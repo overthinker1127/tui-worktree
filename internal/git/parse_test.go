@@ -30,6 +30,23 @@ func TestParsePorcelainStatus(t *testing.T) {
 	}
 }
 
+func TestParsePorcelainStatusZHandlesSpacesAndRenames(t *testing.T) {
+	input := " M a b.txt\x00RM new name.txt\x00old name.txt\x00"
+
+	got, err := ParsePorcelainStatus(input)
+	if err != nil {
+		t.Fatalf("ParsePorcelainStatus() error = %v", err)
+	}
+
+	want := []FileChange{
+		{Path: "a b.txt", Status: Modified},
+		{Path: "new name.txt", OldPath: "old name.txt", Status: Renamed},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParsePorcelainStatus() = %#v, want %#v", got, want)
+	}
+}
+
 func TestParseNumstat(t *testing.T) {
 	input := "" +
 		"10\t2\tREADME.md\n" +
@@ -45,6 +62,39 @@ func TestParseNumstat(t *testing.T) {
 		"README.md": {Additions: 10, Deletions: 2},
 		"asset.png": {Binary: true},
 		"new.go":    {Additions: 3, Deletions: 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNumstat() = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseNumstatZHandlesSpaces(t *testing.T) {
+	input := "1\t0\ta b.txt\x00-\t-\timage file.png\x00"
+
+	got, err := ParseNumstat(input)
+	if err != nil {
+		t.Fatalf("ParseNumstat() error = %v", err)
+	}
+
+	want := map[string]LineStat{
+		"a b.txt":        {Additions: 1},
+		"image file.png": {Binary: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNumstat() = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseNumstatZHandlesRenameRecord(t *testing.T) {
+	input := "0\t0\t\x00old name.txt\x00new name.txt\x00"
+
+	got, err := ParseNumstat(input)
+	if err != nil {
+		t.Fatalf("ParseNumstat() error = %v", err)
+	}
+
+	want := map[string]LineStat{
+		"new name.txt": {},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseNumstat() = %#v, want %#v", got, want)
