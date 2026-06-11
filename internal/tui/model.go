@@ -140,6 +140,7 @@ type Model struct {
 	showLineNumbers    bool
 	revision           int
 	refreshGeneration  int
+	refreshInFlight    bool
 	width              int
 	height             int
 	err                error
@@ -149,6 +150,9 @@ type Model struct {
 	confirmDelete      bool
 	creatingPR         bool
 	pickingMergeTarget bool
+	submittingPR       bool
+	deletingWorktree   bool
+	mergingBranch      bool
 	prTitle            textinput.Model
 	prBody             textarea.Model
 	prFormFocus        prFormFocus
@@ -237,6 +241,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case reloadMsg:
+		if msg.generation == m.refreshGeneration {
+			m.refreshInFlight = false
+		}
 		if msg.generation != m.refreshGeneration {
 			return m, nil
 		}
@@ -253,23 +260,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pullRequestFinishedMsg:
+		m.submittingPR = false
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("PR/MR create failed: %s", msg.err))
 		}
 		m.creatingPR = false
 		return m, m.showSuccessToast("PR/MR created")
 	case mergeBranchFinishedMsg:
+		m.mergingBranch = false
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("merge failed: %s", msg.err))
 		}
 		m.pickingMergeTarget = false
 		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("merged %s into %s", worktreeLabel(msg.request.Source), worktreeLabel(msg.request.Target)))}
 		if m.reload != nil {
-			m.refreshGeneration++
-			cmds = append(cmds, m.reloadCmd(m.refreshGeneration, msg.request.Target.Path))
+			cmds = append(cmds, m.startReloadCmd(msg.request.Target.Path))
 		}
 		return m, tea.Batch(cmds...)
 	case deleteWorktreeFinishedMsg:
+		m.deletingWorktree = false
 		m.confirmDelete = false
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("delete failed: %s", msg.err))
@@ -277,8 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.removeWorktree(msg.worktree.Path)
 		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("deleted %s", worktreeLabel(msg.worktree)))}
 		if m.reload != nil {
-			m.refreshGeneration++
-			cmds = append(cmds, m.reloadCmd(m.refreshGeneration, m.SelectedWorktree().Path))
+			cmds = append(cmds, m.startReloadCmd(m.SelectedWorktree().Path))
 		}
 		return m, tea.Batch(cmds...)
 	case diffLoadedMsg:
@@ -295,12 +303,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case autoRefreshMsg:
 		m.revision++
-		m.refreshGeneration++
 		if m.reload == nil {
 			return m, m.autoRefreshCmd()
 		}
+		if m.refreshInFlight {
+			return m, m.autoRefreshCmd()
+		}
 		return m, tea.Batch(
-			m.reloadCmd(m.refreshGeneration, m.SelectedWorktree().Path),
+			m.startReloadCmd(m.SelectedWorktree().Path),
 			m.autoRefreshCmd(),
 		)
 	case tea.WindowSizeMsg:
@@ -569,7 +579,7 @@ func defaultMergeBranch(ctx context.Context, req MergeRequest) error {
 	if req.Target.Path == "" {
 		return fmt.Errorf("merge target has no worktree path")
 	}
-	cmd := exec.CommandContext(ctx, "git", "merge", req.Source.Branch)
+	cmd := exec.CommandContext(ctx, "git", "merge", "--no-edit", req.Source.Branch)
 	cmd.Dir = req.Target.Path
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -931,7 +941,11 @@ func (m *Model) resetPRForm() {
 
 func (m Model) handlePRFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+o" || (msg.Code == 'o' && msg.Mod == tea.ModCtrl) {
-		return m, m.createPullRequestCmd()
+		if m.submittingPR {
+			return m, nil
+		}
+		cmd := m.createPullRequestCmd()
+		return m, cmd
 	}
 	switch msg.String() {
 	case "ctrl+c":
@@ -970,6 +984,7 @@ func (m *Model) createPullRequestCmd() tea.Cmd {
 	if err != nil {
 		return m.showErrorToast(err.Error())
 	}
+	m.submittingPR = true
 	return func() tea.Msg {
 		return pullRequestFinishedMsg{err: m.createPullRequest(m.context, req)}
 	}
@@ -999,8 +1014,15 @@ func (m Model) pullRequestRequest() (PullRequestRequest, error) {
 func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
+		if m.deletingWorktree {
+			return m, nil
+		}
+		m.deletingWorktree = true
 		return m, m.deleteSelectedWorktreeCmd()
 	case "n", "N", "esc", "d":
+		if m.deletingWorktree {
+			return m, nil
+		}
 		m.confirmDelete = false
 		return m, nil
 	case "ctrl+c", "q":
@@ -1049,17 +1071,24 @@ func (m Model) handleMergeTargetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc", "m":
+		if m.mergingBranch {
+			return m, nil
+		}
 		m.pickingMergeTarget = false
 		return m, nil
 	case "enter":
-		return m, m.mergeSelectedTargetCmd()
+		if m.mergingBranch {
+			return m, nil
+		}
+		cmd := m.mergeSelectedTargetCmd()
+		return m, cmd
 	}
 	var cmd tea.Cmd
 	m.mergeTargetList, cmd = m.mergeTargetList.Update(msg)
 	return m, cmd
 }
 
-func (m Model) mergeSelectedTargetCmd() tea.Cmd {
+func (m *Model) mergeSelectedTargetCmd() tea.Cmd {
 	target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem)
 	if !ok {
 		return m.showErrorToast("no merge target branch")
@@ -1071,6 +1100,7 @@ func (m Model) mergeSelectedTargetCmd() tea.Cmd {
 	if request.Source.Path == "" {
 		request.Source = m.SelectedWorktree()
 	}
+	m.mergingBranch = true
 	return func() tea.Msg {
 		return mergeBranchFinishedMsg{request: request, err: m.mergeBranch(m.context, request)}
 	}
@@ -1157,6 +1187,12 @@ func (m Model) reloadCmd(generation int, selectedWorktreePath string) tea.Cmd {
 	}
 }
 
+func (m *Model) startReloadCmd(selectedWorktreePath string) tea.Cmd {
+	m.refreshGeneration++
+	m.refreshInFlight = true
+	return m.reloadCmd(m.refreshGeneration, selectedWorktreePath)
+}
+
 func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 	if m.loadDiff == nil {
 		return nil
@@ -1185,6 +1221,9 @@ func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 func (m *Model) applySnapshot(snapshot Snapshot) {
 	selected := m.Selected()
 	selectedIndex := m.selected
+	m.pickingMergeTarget = false
+	m.mergingBranch = false
+	m.mergeSource = gitview.Worktree{}
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
