@@ -5,13 +5,25 @@ Read-only TUI for reviewing the current git worktree in a GitHub PR-style files 
 ## Run
 
 ```bash
-go run ./cmd/tui-worktree --repo . --theme tokyonight
+task run
+```
+
+Override repo or theme:
+
+```bash
+task run REPO=/path/to/repo THEME=kanagawa
 ```
 
 Plan-compatible alias:
 
 ```bash
-go run ./cmd/worktree-diff-tui --repo . --theme kanagawa
+task run-alias THEME=catppuccin
+```
+
+Verification:
+
+```bash
+task check
 ```
 
 ## Themes
@@ -57,14 +69,19 @@ go run ./cmd/worktree-diff-tui --repo . --theme kanagawa
 
 ```bash
 tmp=$(mktemp -d)
-cd "$tmp"
-git init -b main
-git config user.email smoke@example.com
-git config user.name Smoke
-printf "hello\n" > README.md
-git add README.md
-git commit -m init
-printf "hello\nworld\n" > README.md
-printf "new\n" > added.txt
-go run /path/to/tui-worktree/cmd/tui-worktree --repo "$tmp" --theme tokyonight
+git -C "$tmp" init -b main
+git -C "$tmp" config user.email smoke@example.com
+git -C "$tmp" config user.name Smoke
+printf "hello\n" > "$tmp/README.md"
+git -C "$tmp" add README.md
+git -C "$tmp" commit -m init
+printf "hello\nworld\n" > "$tmp/README.md"
+printf "new\n" > "$tmp/added.txt"
+task run REPO="$tmp" THEME=tokyonight
+```
+
+Or use the built-in smoke task:
+
+```bash
+task smoke
 ```
