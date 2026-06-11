@@ -1,0 +1,65 @@
+version: "3"
+
+vars:
+  REPO: '{{default "." .REPO}}'
+  THEME: '{{default "tokyonight" .THEME}}'
+
+tasks:
+  default:
+    desc: List available tasks.
+    cmds:
+      - task --list
+
+  run:
+    desc: Run tui-worktree. Override with REPO=/path THEME=kanagawa.
+    cmds:
+      - go run ./cmd/tui-worktree --repo "{{.REPO}}" --theme "{{.THEME}}"
+
+  run-alias:
+    desc: Run the plan-compatible worktree-diff-tui alias.
+    cmds:
+      - go run ./cmd/worktree-diff-tui --repo "{{.REPO}}" --theme "{{.THEME}}"
+
+  help:
+    desc: Show CLI help.
+    cmds:
+      - go run ./cmd/worktree-diff-tui --help
+
+  fmt:
+    desc: Format Go source.
+    cmds:
+      - gofmt -w ./cmd ./internal
+
+  tidy:
+    desc: Tidy Go modules.
+    cmds:
+      - go mod tidy
+
+  test:
+    desc: Run all tests.
+    cmds:
+      - go test ./...
+
+  check:
+    desc: Format, tidy, test, and verify help output.
+    cmds:
+      - task: fmt
+      - task: tidy
+      - task: test
+      - task: help
+
+  smoke:
+    desc: Create a temporary git repository and run the TUI against it.
+    cmds:
+      - |
+        tmp=$(mktemp -d)
+        git -C "$tmp" init -b main
+        git -C "$tmp" config user.email smoke@example.com
+        git -C "$tmp" config user.name Smoke
+        printf "hello\n" > "$tmp/README.md"
+        git -C "$tmp" add README.md
+        git -C "$tmp" commit -m init
+        printf "hello\nworld\n" > "$tmp/README.md"
+        printf "new\n" > "$tmp/added.txt"
+        echo "Smoke repo: $tmp"
+        go run ./cmd/tui-worktree --repo "$tmp" --theme "{{.THEME}}"
