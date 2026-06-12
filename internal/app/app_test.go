@@ -89,12 +89,12 @@ func TestSaveLoadConfig(t *testing.T) {
 
 func TestResolveThemeUsesConfigUnlessFlagProvided(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if err := SaveConfig(UserConfig{Theme: "gruvbox"}); err != nil {
+	if err := SaveConfig(UserConfig{Theme: "gruvbox-dark"}); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 
-	if got := ResolveTheme(Options{}); got != "gruvbox" {
-		t.Fatalf("ResolveTheme() = %q, want gruvbox", got)
+	if got := ResolveTheme(Options{}); got != "gruvbox-dark" {
+		t.Fatalf("ResolveTheme() = %q, want gruvbox-dark", got)
 	}
 	if got := ResolveTheme(Options{Theme: "kanagawa"}); got != "kanagawa" {
 		t.Fatalf("ResolveTheme(flag) = %q, want kanagawa", got)

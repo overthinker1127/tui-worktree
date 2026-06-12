@@ -53,7 +53,6 @@ task check
 - `catppuccin-latte`
 - `catppuccin-mocha`
 - `catppuccin-macchiato`
-- `gruvbox`
 - `gruvbox-dark`
 - `gruvbox-light`
 - `solarized`

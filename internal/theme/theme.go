@@ -96,7 +96,6 @@ var presets = map[string]Theme{
 		Panel:         "#1e2030",
 		PanelSelected: "#363a4f",
 	},
-	"gruvbox":         gruvboxDark(),
 	"gruvbox-dark":    gruvboxDark(),
 	"gruvbox-light":   gruvboxLight(),
 	"solarized":       solarizedDark(),
