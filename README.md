@@ -23,17 +23,23 @@ The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the
 Requirements:
 
 - Git
-- Go 1.26.2 or newer
+- Homebrew, or Go 1.26.2 or newer for `go install`
 - A terminal with truecolor support
 - Optional: `gh` or `glab` for PR/MR creation
 
-Install:
+Install with Homebrew:
+
+```bash
+brew install overthinker1127/tap/tui-worktree
+```
+
+Or install with Go:
 
 ```bash
 go install github.com/overthinker1127/tui-worktree/cmd/tui-worktree@latest
 ```
 
-Make sure your Go binary directory is on `PATH`. Common locations are `$(go env GOPATH)/bin` or `GOBIN` when configured.
+When installing with Go, make sure your Go binary directory is on `PATH`. Common locations are `$(go env GOPATH)/bin` or `GOBIN` when configured.
 
 ## Usage examples
 
