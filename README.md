@@ -33,12 +33,23 @@ Install with Homebrew:
 brew install overthinker1127/tap/tui-worktree
 ```
 
-Install Linux packages from a GitHub release:
+Install Linux packages from a GitHub release by downloading the package for your version and architecture first:
 
 ```bash
-sudo apt install ./tui-worktree_*_linux_amd64.deb
-sudo rpm -i ./tui-worktree-*.x86_64.rpm
-sudo apk add --allow-untrusted ./tui-worktree_*_linux_amd64.apk
+version=v0.0.10
+curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree_${version#v}_amd64.deb"
+sudo apt install "./tui-worktree_${version#v}_amd64.deb"
+```
+
+For RPM or Alpine packages, download the matching asset from the same release page:
+
+```bash
+version=v0.0.10
+curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree-${version#v}-1.x86_64.rpm"
+sudo rpm -i "./tui-worktree-${version#v}-1.x86_64.rpm"
+
+curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree_${version#v}_x86_64.apk"
+sudo apk add --allow-untrusted "./tui-worktree_${version#v}_x86_64.apk"
 ```
 
 Chocolatey packages are generated as release assets. After the package is published to the Chocolatey Community Repository:
