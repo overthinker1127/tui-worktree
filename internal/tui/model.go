@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -124,52 +125,53 @@ const (
 )
 
 type Model struct {
-	styles             theme.Styles
-	context            context.Context
-	themeName          string
-	themeNames         []string
-	themeCursor        int
-	worktrees          []WorktreeState
-	selectedWorktree   int
-	changes            []gitview.FileChange
-	diffs              map[string]string
-	diffLines          []string
-	selected           int
-	worktreeScrollX    int
-	fileScrollX        int
-	showLineNumbers    bool
-	revision           int
-	refreshGeneration  int
-	refreshInFlight    bool
-	width              int
-	height             int
-	err                error
-	toast              toastState
-	toastID            int
-	pickingTheme       bool
-	confirmDelete      bool
-	creatingPR         bool
-	pickingMergeTarget bool
-	confirmMerge       bool
-	submittingPR       bool
-	deletingWorktree   bool
-	mergingBranch      bool
-	prTitle            textinput.Model
-	prBody             textarea.Model
-	prFormFocus        prFormFocus
-	mergeTargetList    list.Model
-	mergeSource        gitview.Worktree
-	mergeRequest       MergeRequest
-	forgeCLI           string
-	focusedPane        focusedPane
-	loadDiff           func(context.Context, string, gitview.FileChange) string
-	deleteWorktree     func(context.Context, gitview.Worktree) error
-	reload             func(context.Context, string) Snapshot
-	saveTheme          func(string) error
-	findForgeCLI       func() (string, bool)
-	createPullRequest  func(context.Context, PullRequestRequest) error
-	mergeBranch        func(context.Context, MergeRequest) error
-	viewport           viewport.Model
+	styles              theme.Styles
+	context             context.Context
+	themeName           string
+	themeNames          []string
+	themeCursor         int
+	worktrees           []WorktreeState
+	selectedWorktree    int
+	changes             []gitview.FileChange
+	diffs               map[string]string
+	diffLines           []string
+	selected            int
+	worktreeScrollX     int
+	fileScrollX         int
+	mergeConfirmScrollX int
+	showLineNumbers     bool
+	revision            int
+	refreshGeneration   int
+	refreshInFlight     bool
+	width               int
+	height              int
+	err                 error
+	toast               toastState
+	toastID             int
+	pickingTheme        bool
+	confirmDelete       bool
+	creatingPR          bool
+	pickingMergeTarget  bool
+	confirmMerge        bool
+	submittingPR        bool
+	deletingWorktree    bool
+	mergingBranch       bool
+	prTitle             textinput.Model
+	prBody              textarea.Model
+	prFormFocus         prFormFocus
+	mergeTargetList     list.Model
+	mergeSource         gitview.Worktree
+	mergeRequest        MergeRequest
+	forgeCLI            string
+	focusedPane         focusedPane
+	loadDiff            func(context.Context, string, gitview.FileChange) string
+	deleteWorktree      func(context.Context, gitview.Worktree) error
+	reload              func(context.Context, string) Snapshot
+	saveTheme           func(string) error
+	findForgeCLI        func() (string, bool)
+	createPullRequest   func(context.Context, PullRequestRequest) error
+	mergeBranch         func(context.Context, MergeRequest) error
+	viewport            viewport.Model
 }
 
 func NewModel(cfg Config) Model {
@@ -275,6 +277,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mergingBranch = false
 		m.confirmMerge = false
 		m.mergeRequest = MergeRequest{}
+		m.mergeConfirmScrollX = 0
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("merge failed: %s", msg.err))
 		}
@@ -664,6 +667,12 @@ func (m *Model) scrollDiffHorizontal(delta int) {
 	m.viewport.SetXOffset(clamp(m.viewport.XOffset()+delta*step, 0, m.maxDiffXOffset()))
 }
 
+func (m *Model) scrollMergeConfirmHorizontal(delta int) {
+	step := 6
+	contentWidth := m.mergeConfirmContentWidth(m.mergeConfirmWidth())
+	m.mergeConfirmScrollX = clamp(m.mergeConfirmScrollX+delta*step, 0, m.maxMergeConfirmScrollX(contentWidth))
+}
+
 func (m Model) maxDiffXOffset() int {
 	return max(0, m.maxDiffLineWidth()-m.diffTextWidth(m.viewport.Width()))
 }
@@ -849,19 +858,7 @@ func (m Model) mergeTargetItems(source gitview.Worktree) []list.Item {
 func (m Model) newMergeTargetList(items []list.Item) list.Model {
 	width := min(max(34, m.width-12), 64)
 	height := min(max(6, len(items)*2+2), max(6, m.bodyHeight()-4))
-	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = true
-	delegate.SetHeight(2)
-	delegate.SetSpacing(0)
-	delegate.Styles.NormalTitle = m.styles.FileItem.Background(m.styles.Panel.GetBackground()).PaddingLeft(2)
-	delegate.Styles.NormalDesc = m.styles.Muted.Background(m.styles.Panel.GetBackground()).PaddingLeft(2)
-	delegate.Styles.SelectedTitle = m.styles.FileSelected.PaddingLeft(1)
-	delegate.Styles.SelectedDesc = m.styles.FileSelected.PaddingLeft(1)
-	delegate.Styles.DimmedTitle = delegate.Styles.NormalTitle
-	delegate.Styles.DimmedDesc = delegate.Styles.NormalDesc
-	delegate.Styles.FilterMatch = m.styles.DiffHunk.Underline(true)
-
-	targets := list.New(items, delegate, width, height)
+	targets := list.New(items, mergeTargetDelegate{styles: m.styles}, width, height)
 	targets.Title = iconMerge + " Merge into"
 	targets.SetFilteringEnabled(false)
 	targets.SetShowFilter(false)
@@ -873,6 +870,43 @@ func (m Model) newMergeTargetList(items []list.Item) list.Model {
 	targets.Styles.Title = m.styles.Title.Background(m.styles.Panel.GetBackground())
 	targets.Styles.NoItems = m.styles.Muted.Background(m.styles.Panel.GetBackground())
 	return targets
+}
+
+type mergeTargetDelegate struct {
+	styles theme.Styles
+}
+
+func (d mergeTargetDelegate) Height() int {
+	return 2
+}
+
+func (d mergeTargetDelegate) Spacing() int {
+	return 0
+}
+
+func (d mergeTargetDelegate) Update(tea.Msg, *list.Model) tea.Cmd {
+	return nil
+}
+
+func (d mergeTargetDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	target, ok := item.(mergeTargetItem)
+	if !ok {
+		return
+	}
+
+	width := max(1, m.Width())
+	titleStyle := d.styles.FileItem.Background(d.styles.Panel.GetBackground())
+	descStyle := d.styles.Muted.Background(d.styles.Panel.GetBackground())
+	titlePrefix := "  "
+	if index == m.Index() {
+		titleStyle = d.styles.FileSelected
+		descStyle = d.styles.FileSelected
+		titlePrefix = iconSelected + " "
+	}
+
+	title := renderOverlayLine(titleStyle, width, titlePrefix+target.Title(), 0)
+	desc := renderOverlayLine(descStyle, width, "  "+target.Description(), 0)
+	_, _ = fmt.Fprintf(w, "%s\n%s", title, desc)
 }
 
 func (m *Model) resetPRForm() {
@@ -1122,6 +1156,7 @@ func (m *Model) openMergeConfirm() tea.Cmd {
 		return m.showErrorToast("no merge target branch")
 	}
 	m.mergeRequest = request
+	m.mergeConfirmScrollX = 0
 	m.pickingMergeTarget = false
 	m.confirmMerge = true
 	return nil
@@ -1152,6 +1187,13 @@ func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.confirmMerge = false
 		m.mergeRequest = MergeRequest{}
+		m.mergeConfirmScrollX = 0
+		return m, nil
+	case "h", "left":
+		m.scrollMergeConfirmHorizontal(-1)
+		return m, nil
+	case "l", "right":
+		m.scrollMergeConfirmHorizontal(1)
 		return m, nil
 	case "enter", "y":
 		if m.mergingBranch {
@@ -1295,11 +1337,22 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 	selectedWorktreePath := m.SelectedWorktree().Path
 	selectedIndex := m.selected
 	diffYOffset := m.viewport.YOffset()
+	preserveMergeTargetPicker := m.pickingMergeTarget
+	mergeSource := m.mergeSource
+	mergeTargetPath := ""
+	if target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem); ok {
+		mergeTargetPath = target.worktree.Path
+	}
+	mergeRequest := m.mergeRequest
+	preserveMergeConfirm := m.confirmMerge
+	preserveMergingBranch := m.mergingBranch
+	preserveMergeConfirmScrollX := m.mergeConfirmScrollX
 	m.pickingMergeTarget = false
 	m.mergingBranch = false
 	m.mergeSource = gitview.Worktree{}
 	m.confirmMerge = false
 	m.mergeRequest = MergeRequest{}
+	m.mergeConfirmScrollX = 0
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
@@ -1307,6 +1360,18 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 	m.diffs = snapshot.Diffs
 	m.err = snapshot.Error
 	m.normalizeWorktrees()
+	if preserveMergeConfirm {
+		if request, ok := m.refreshedMergeRequest(mergeRequest); ok {
+			m.confirmMerge = true
+			m.mergingBranch = preserveMergingBranch
+			m.mergeRequest = request
+			m.mergeSource = request.Source
+			m.mergeConfirmScrollX = clamp(preserveMergeConfirmScrollX, 0, m.maxMergeConfirmScrollX(m.mergeConfirmContentWidth(m.mergeConfirmWidth())))
+		}
+	}
+	if !m.confirmMerge && preserveMergeTargetPicker {
+		m.restoreMergeTargetPicker(mergeSource, mergeTargetPath)
+	}
 	if index := changeIndex(m.changes, selected); index >= 0 {
 		m.selected = index
 	} else {
@@ -1321,6 +1386,62 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 		m.viewport.SetYOffset(diffYOffset)
 	}
 	return preservedDiffScroll, diffYOffset
+}
+
+func (m *Model) restoreMergeTargetPicker(source gitview.Worktree, selectedTargetPath string) bool {
+	refreshedSource, ok := m.worktreeByPath(source.Path)
+	if !ok || refreshedSource.Branch == "" || refreshedSource.Branch == "detached" || m.isDefaultBranch(refreshedSource) {
+		return false
+	}
+	items := m.mergeTargetItems(refreshedSource)
+	if len(items) == 0 {
+		return false
+	}
+	m.mergeSource = refreshedSource
+	m.mergeTargetList = m.newMergeTargetList(items)
+	if index := mergeTargetItemIndex(items, selectedTargetPath); index >= 0 {
+		m.mergeTargetList.Select(index)
+	}
+	m.pickingMergeTarget = true
+	m.focusedPane = paneWorktrees
+	return true
+}
+
+func mergeTargetItemIndex(items []list.Item, path string) int {
+	if path == "" {
+		return -1
+	}
+	for i, item := range items {
+		target, ok := item.(mergeTargetItem)
+		if ok && target.worktree.Path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m Model) refreshedMergeRequest(request MergeRequest) (MergeRequest, bool) {
+	source, sourceOK := m.worktreeByPath(request.Source.Path)
+	target, targetOK := m.worktreeByPath(request.Target.Path)
+	if !sourceOK || !targetOK {
+		return MergeRequest{}, false
+	}
+	return MergeRequest{
+		Source: source,
+		Target: target,
+	}, true
+}
+
+func (m Model) worktreeByPath(path string) (gitview.Worktree, bool) {
+	if path == "" {
+		return gitview.Worktree{}, false
+	}
+	for _, state := range m.worktrees {
+		if state.Worktree.Path == path {
+			return state.Worktree, true
+		}
+	}
+	return gitview.Worktree{}, false
 }
 
 func (m *Model) normalizeWorktrees() {
@@ -1711,29 +1832,83 @@ func (m Model) renderThemePicker() string {
 
 func (m Model) renderMergeTargetPicker() string {
 	targets := m.mergeTargetList
-	width := min(max(34, m.width-12), 64)
-	height := min(max(6, lipgloss.Height(targets.View())), max(6, m.bodyHeight()-4))
-	targets.SetSize(width, height)
-	return m.overlayPanelStyle().Width(width+4).Padding(1, 2).Render(targets.View())
+	width := min(max(40, m.width-12), 70)
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
+	height := min(max(6, len(targets.Items())*2+2), max(6, m.bodyHeight()-5))
+	targets.SetSize(contentWidth, height)
+	source := renderOverlayLine(m.styles.Muted, contentWidth, "From: "+worktreeLabel(m.mergeSource)+"  >  Target: "+selectedMergeTargetLabel(targets), 0)
+	return panel.Render(lipgloss.JoinVertical(lipgloss.Left, source, targets.View()))
+}
+
+func selectedMergeTargetLabel(targets list.Model) string {
+	target, ok := targets.SelectedItem().(mergeTargetItem)
+	if !ok {
+		return ""
+	}
+	return worktreeLabel(target.worktree)
 }
 
 func (m Model) renderMergeConfirm() string {
+	width := m.mergeConfirmWidth()
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
+	scrollX := clamp(m.mergeConfirmScrollX, 0, m.maxMergeConfirmScrollX(contentWidth))
+	texts := m.mergeConfirmTextLines()
+	lines := []string{
+		renderOverlayLine(m.styles.Title.Background(panel.GetBackground()), contentWidth, texts[0], scrollX),
+		renderOverlayLine(m.styles.Diff, contentWidth, texts[1], scrollX),
+		renderOverlayLine(m.styles.Diff, contentWidth, texts[2], scrollX),
+		"",
+		renderOverlayLine(m.styles.Muted, contentWidth, texts[3], 0),
+		renderOverlayLine(m.styles.Muted, contentWidth, texts[4], 0),
+		"",
+		renderOverlayLine(m.styles.FileSelected, contentWidth, texts[5], 0),
+	}
+	return panel.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) mergeConfirmTextLines() []string {
 	request := m.mergeRequest
 	source := worktreeLabel(request.Source)
 	target := worktreeLabel(request.Target)
-	width := min(max(50, m.width-12), 72)
-	contentWidth := max(1, width-4)
-	lines := []string{
-		m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(contentWidth).Render(iconMerge + " Merge " + source + " into " + target),
-		m.styles.Diff.Width(contentWidth).Render("Source: " + source),
-		m.styles.Diff.Width(contentWidth).Render("Target: " + target),
-		"",
-		m.styles.Muted.Width(contentWidth).Render("Target worktree will be updated first."),
-		m.styles.Muted.Width(contentWidth).Render("Dirty files and conflicts will be checked before merging."),
-		"",
-		m.styles.FileSelected.Width(contentWidth).Render("[Enter] merge  [Y]es  [Esc] cancel  [N]o"),
+	return []string{
+		iconMerge + " Merge " + source + " into " + target,
+		"Source: " + source,
+		"Target: " + target,
+		"Target worktree will be updated first.",
+		"Dirty files and conflicts will be checked before merging.",
+		"[Enter] merge  [Y]es  [Esc] cancel  [N]o",
 	}
-	return m.overlayPanelStyle().Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) mergeConfirmWidth() int {
+	return min(max(50, m.width-12), 72)
+}
+
+func (m Model) mergeConfirmContentWidth(width int) int {
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	return max(1, width-panel.GetHorizontalFrameSize())
+}
+
+func (m Model) maxMergeConfirmScrollX(contentWidth int) int {
+	lineWidth := 0
+	for _, line := range m.mergeConfirmTextLines()[:3] {
+		lineWidth = max(lineWidth, ansi.StringWidth(line))
+	}
+	return max(0, lineWidth-contentWidth)
+}
+
+func renderOverlayLine(style lipgloss.Style, width int, text string, offset int) string {
+	if width <= 0 {
+		return ""
+	}
+	offset = max(0, offset)
+	rendered := style.Inline(true).MaxWidth(width).Render(ansi.Cut(text, offset, offset+width))
+	if renderedWidth := lipgloss.Width(rendered); renderedWidth < width {
+		rendered += style.Inline(true).Render(strings.Repeat(" ", width-renderedWidth))
+	}
+	return rendered
 }
 
 func (m Model) overlayPanelStyle() lipgloss.Style {

@@ -587,7 +587,7 @@ func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
 		model = next.(Model)
 	}
 	scrolled := ansi.Strip(model.View().Content)
-	if !strings.Contains(scrolled, "▸ ly/long/path/that/") {
+	if !strings.Contains(scrolled, iconSelected+" ly/long/path/that/") {
 		t.Fatalf("horizontal scroll did not move file row: %q", scrolled)
 	}
 	if model.fileScrollX != 20 {
@@ -1083,6 +1083,61 @@ func TestMergeKeyOpensTargetListWithDefaultBranchSelected(t *testing.T) {
 	}
 }
 
+func TestMergeTargetPickerMarksSelectionAndDoesNotWrapRows(t *testing.T) {
+	model := testModel(t)
+	model.width = 58
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/source", Branch: "source"}},
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/demo-single-test-file", Branch: "demo/single-test-file", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	model = next.(Model)
+	view := model.renderMergeTargetPicker()
+	lines := strings.Split(view, "\n")
+	maxWidth := lipgloss.Width(lines[0])
+
+	if !strings.Contains(ansi.Strip(view), iconSelected) {
+		t.Fatalf("merge target picker should mark selected target: %q", ansi.Strip(view))
+	}
+	if !strings.Contains(ansi.Strip(view), "From: source  >  Target: demo/single-tes") {
+		t.Fatalf("merge target picker should show source branch: %q", ansi.Strip(view))
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got > maxWidth {
+			t.Fatalf("merge target picker line %d width = %d, want <= %d: %q", i, got, maxWidth, ansi.Strip(line))
+		}
+	}
+}
+
+func TestMergeTargetPickerHeaderFollowsSelectedTarget(t *testing.T) {
+	model := testModel(t)
+	model.width = 68
+	model.focusedPane = paneWorktrees
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/source", Branch: "source"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/dev", Branch: "dev"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	model = next.(Model)
+	if got := ansi.Strip(model.renderMergeTargetPicker()); !strings.Contains(got, "From: source  >  Target: main") {
+		t.Fatalf("initial merge target header = %q, want main target", got)
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = next.(Model)
+	if got := ansi.Strip(model.renderMergeTargetPicker()); !strings.Contains(got, "From: source  >  Target: dev") {
+		t.Fatalf("updated merge target header = %q, want dev target", got)
+	}
+}
+
 func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{
@@ -1131,6 +1186,64 @@ func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	}
 	if got.toast.Kind != toastSuccess || !strings.Contains(got.toast.Message, "merged feature into main") {
 		t.Fatalf("toast = %#v, want merge success", got.toast)
+	}
+}
+
+func TestMergeConfirmDoesNotWrapLongBranchNames(t *testing.T) {
+	model := testModel(t)
+	model.width = 58
+	model.confirmMerge = true
+	model.mergeRequest = MergeRequest{
+		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: strings.Repeat("feature-", 12)},
+		Target: gitview.Worktree{Path: "/repo", Branch: strings.Repeat("main-", 12)},
+	}
+
+	longHeight := lipgloss.Height(model.renderMergeConfirm())
+	model.mergeRequest = MergeRequest{
+		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+		Target: gitview.Worktree{Path: "/repo", Branch: "main"},
+	}
+	shortHeight := lipgloss.Height(model.renderMergeConfirm())
+
+	if longHeight != shortHeight {
+		t.Fatalf("long merge confirmation height = %d, want %d; overlay should stay one line instead of wrapping", longHeight, shortHeight)
+	}
+}
+
+func TestMergeConfirmScrollsLongBranchNamesHorizontally(t *testing.T) {
+	model := testModel(t)
+	model.width = 58
+	model.confirmMerge = true
+	model.mergeRequest = MergeRequest{
+		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: strings.Repeat("feature-", 12) + "unique-tail"},
+		Target: gitview.Worktree{Path: "/repo", Branch: "main"},
+	}
+	before := ansi.Strip(model.renderMergeConfirm())
+	if strings.Contains(before, "unique-tail") {
+		t.Fatalf("initial merge confirmation unexpectedly shows tail before scrolling: %q", before)
+	}
+
+	for range 20 {
+		next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+		if cmd != nil {
+			t.Fatal("merge confirm horizontal scroll should not return command")
+		}
+		model = next.(Model)
+	}
+
+	if model.mergeConfirmScrollX == 0 {
+		t.Fatal("merge confirm scroll offset should move right")
+	}
+	after := ansi.Strip(model.renderMergeConfirm())
+	if !strings.Contains(after, "unique-tail") {
+		t.Fatalf("scrolled merge confirmation missing tail: %q", after)
+	}
+
+	rightOffset := model.mergeConfirmScrollX
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
+	model = next.(Model)
+	if model.mergeConfirmScrollX >= rightOffset {
+		t.Fatalf("merge confirm scroll offset = %d, want less than %d after left scroll", model.mergeConfirmScrollX, rightOffset)
 	}
 }
 
@@ -1926,7 +2039,46 @@ func TestAutoRefreshSkipsReloadWhilePreviousReloadIsInFlight(t *testing.T) {
 	}
 }
 
-func TestAutoRefreshClosesMergeTargetPickerToAvoidStaleTargets(t *testing.T) {
+func TestAutoRefreshPreservesMergeTargetPicker(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/dev", Branch: "dev"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	model = next.(Model)
+	if !model.pickingMergeTarget {
+		t.Fatal("merge target picker should be open before refresh")
+	}
+	model.mergeTargetList.Select(1)
+
+	model.applySnapshot(Snapshot{
+		Worktrees: []WorktreeState{
+			{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+			{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+			{Worktree: gitview.Worktree{Path: "/repo/.worktrees/dev", Branch: "dev"}},
+		},
+		SelectedWorktree: model.selectedWorktree,
+		Changes:          model.changes,
+		Diffs:            model.diffs,
+	})
+
+	if !model.pickingMergeTarget {
+		t.Fatal("refresh should preserve merge target picker")
+	}
+	if model.mergeSource.Branch != "feature" {
+		t.Fatalf("mergeSource = %#v, want refreshed feature source", model.mergeSource)
+	}
+	selected, ok := model.mergeTargetList.SelectedItem().(mergeTargetItem)
+	if !ok || selected.worktree.Branch != "dev" {
+		t.Fatalf("selected merge target = %#v, want dev", model.mergeTargetList.SelectedItem())
+	}
+}
+
+func TestAutoRefreshClosesMergeTargetPickerWhenSourceDisappears(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{
 		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
@@ -1941,17 +2093,59 @@ func TestAutoRefreshClosesMergeTargetPickerToAvoidStaleTargets(t *testing.T) {
 	}
 
 	model.applySnapshot(Snapshot{
-		Worktrees:        model.worktrees,
-		SelectedWorktree: model.selectedWorktree,
+		Worktrees: []WorktreeState{
+			{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		},
+		SelectedWorktree: 0,
 		Changes:          model.changes,
 		Diffs:            model.diffs,
 	})
 
 	if model.pickingMergeTarget {
-		t.Fatal("refresh should close merge target picker to avoid stale targets")
+		t.Fatal("refresh should close merge target picker when source disappears")
 	}
 	if model.mergeSource.Path != "" {
 		t.Fatalf("mergeSource = %#v, want cleared", model.mergeSource)
+	}
+}
+
+func TestAutoRefreshPreservesMergeConfirmation(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	model = next.(Model)
+	model.mergingBranch = true
+	if !model.confirmMerge {
+		t.Fatal("merge confirmation should be open before refresh")
+	}
+
+	model.applySnapshot(Snapshot{
+		Worktrees: []WorktreeState{
+			{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+			{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+		},
+		SelectedWorktree: model.selectedWorktree,
+		Changes:          model.changes,
+		Diffs:            model.diffs,
+	})
+
+	if !model.confirmMerge {
+		t.Fatal("refresh should preserve merge confirmation")
+	}
+	if !model.mergingBranch {
+		t.Fatal("refresh should preserve in-flight merge state")
+	}
+	if model.pickingMergeTarget {
+		t.Fatal("merge confirmation should keep target picker closed")
+	}
+	if model.mergeRequest.Source.Branch != "feature" || model.mergeRequest.Target.Branch != "main" {
+		t.Fatalf("merge request = %#v, want feature into main", model.mergeRequest)
 	}
 }
 
