@@ -248,7 +248,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.generation != m.refreshGeneration {
 			return m, nil
 		}
-		m.applySnapshot(msg.snapshot)
+		preservedDiffScroll, diffYOffset := m.applySnapshot(msg.snapshot)
+		if preservedDiffScroll {
+			return m, m.ensureSelectedDiffCmdWithYOffset(diffYOffset)
+		}
 		return m, m.ensureSelectedDiffCmd()
 	case toastExpiredMsg:
 		if msg.id == m.toastID {
@@ -299,6 +302,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.diffs[key] = msg.diff
 			if selected := m.Selected(); selected.Path == msg.path && m.SelectedWorktree().Path == msg.worktree {
 				m.refreshDiff()
+				m.viewport.SetYOffset(msg.diffYOffset)
 			}
 		}
 		return m, nil
@@ -1195,6 +1199,10 @@ func (m *Model) startReloadCmd(selectedWorktreePath string) tea.Cmd {
 }
 
 func (m Model) ensureSelectedDiffCmd() tea.Cmd {
+	return m.ensureSelectedDiffCmdWithYOffset(m.viewport.YOffset())
+}
+
+func (m Model) ensureSelectedDiffCmdWithYOffset(diffYOffset int) tea.Cmd {
 	if m.loadDiff == nil {
 		return nil
 	}
@@ -1211,17 +1219,20 @@ func (m Model) ensureSelectedDiffCmd() tea.Cmd {
 	worktreePath := m.SelectedWorktree().Path
 	return func() tea.Msg {
 		return diffLoadedMsg{
-			revision: m.revision,
-			worktree: worktreePath,
-			path:     selected.Path,
-			diff:     m.loadDiff(m.context, worktreePath, selected),
+			revision:    m.revision,
+			worktree:    worktreePath,
+			path:        selected.Path,
+			diff:        m.loadDiff(m.context, worktreePath, selected),
+			diffYOffset: diffYOffset,
 		}
 	}
 }
 
-func (m *Model) applySnapshot(snapshot Snapshot) {
+func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 	selected := m.Selected()
+	selectedWorktreePath := m.SelectedWorktree().Path
 	selectedIndex := m.selected
+	diffYOffset := m.viewport.YOffset()
 	m.pickingMergeTarget = false
 	m.mergingBranch = false
 	m.mergeSource = gitview.Worktree{}
@@ -1241,6 +1252,11 @@ func (m *Model) applySnapshot(snapshot Snapshot) {
 		m.diffs = map[string]string{}
 	}
 	m.refreshDiff()
+	preservedDiffScroll := selected.Path != "" && m.Selected().Path == selected.Path && m.SelectedWorktree().Path == selectedWorktreePath
+	if preservedDiffScroll {
+		m.viewport.SetYOffset(diffYOffset)
+	}
+	return preservedDiffScroll, diffYOffset
 }
 
 func (m *Model) normalizeWorktrees() {
@@ -2404,8 +2420,9 @@ type deleteWorktreeFinishedMsg struct {
 }
 
 type diffLoadedMsg struct {
-	revision int
-	worktree string
-	path     string
-	diff     string
+	revision    int
+	worktree    string
+	path        string
+	diff        string
+	diffYOffset int
 }

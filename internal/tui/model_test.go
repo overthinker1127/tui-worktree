@@ -1731,6 +1731,107 @@ func TestAutoRefreshPreservesSelectedFileWhenNewFileIsAdded(t *testing.T) {
 	}
 }
 
+func TestAutoRefreshPreservesDiffScrollForSelectedFile(t *testing.T) {
+	model := testModel(t)
+	model.height = 8
+	diff := strings.Join([]string{
+		"diff --git a/a.go b/a.go",
+		"@@ -1,12 +1,12 @@",
+		" line-1",
+		" line-2",
+		" line-3",
+		" line-4",
+		" line-5",
+		" line-6",
+		" line-7",
+		" line-8",
+		" line-9",
+		" line-10",
+	}, "\n")
+	model.diffs = map[string]string{"a.go": diff}
+	model.refreshDiff()
+	model.viewport.SetYOffset(5)
+	model.reload = func(context.Context, string) Snapshot {
+		return Snapshot{
+			Changes: []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
+			Diffs:   map[string]string{"a.go": diff + "\n line-11"},
+		}
+	}
+
+	next, cmd := model.Update(autoRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("auto-refresh command is nil")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("auto-refresh command = %#v, want batch", cmd())
+	}
+	next, _ = next.(Model).Update(batch[0]())
+	got := next.(Model)
+
+	if got.viewport.YOffset() != 5 {
+		t.Fatalf("diff y offset after refresh = %d, want 5", got.viewport.YOffset())
+	}
+}
+
+func TestAutoRefreshPreservesDiffScrollWhenSelectedDiffReloadsLazily(t *testing.T) {
+	model := testModel(t)
+	model.height = 8
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Modified},
+	}
+	selectedDiff := strings.Join([]string{
+		"diff --git a/b.go b/b.go",
+		"@@ -1,12 +1,12 @@",
+		" line-1",
+		" line-2",
+		" line-3",
+		" line-4",
+		" line-5",
+		" line-6",
+		" line-7",
+		" line-8",
+		" line-9",
+		" line-10",
+	}, "\n")
+	model.diffs = map[string]string{"b.go": selectedDiff}
+	model.selected = 1
+	model.refreshDiff()
+	model.viewport.SetYOffset(5)
+	model.reload = func(context.Context, string) Snapshot {
+		return Snapshot{
+			Changes: model.changes,
+			Diffs:   map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},
+		}
+	}
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+		return selectedDiff + "\n refreshed-" + change.Path
+	}
+
+	next, cmd := model.Update(autoRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("auto-refresh command is nil")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("auto-refresh command = %#v, want batch", cmd())
+	}
+	next, cmd = next.(Model).Update(batch[0]())
+	if cmd == nil {
+		t.Fatal("selected diff should be loaded lazily after refresh")
+	}
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if got.viewport.YOffset() != 5 {
+		t.Fatalf("diff y offset after lazy reload = %d, want 5", got.viewport.YOffset())
+	}
+	if !strings.Contains(got.diffs[got.diffKey(got.Selected())], "refreshed-b.go") {
+		t.Fatalf("selected diff was not lazily reloaded: %#v", got.diffs)
+	}
+}
+
 func TestAutoRefreshUsesConfiguredContext(t *testing.T) {
 	model := testModel(t)
 	ctx, cancel := context.WithCancel(context.Background())
