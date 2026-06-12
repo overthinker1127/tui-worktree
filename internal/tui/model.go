@@ -1350,9 +1350,9 @@ func (m Model) renderFiles(width, height int) string {
 		lines = append(lines, line)
 	}
 	if len(m.changes) == 0 {
-		lines = append(lines, m.styles.Muted.Render("No changed files"))
+		lines = append(lines, m.listRowStyle(m.styles.Muted).Render("No changed files"))
 	} else if end < len(m.changes) {
-		lines = append(lines, m.styles.Muted.Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
+		lines = append(lines, m.listRowStyle(m.styles.Muted).Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
 	}
 	innerHeight := panelInnerHeight(height)
 	title := fmt.Sprintf("[2]-%s %d files", iconFile, len(m.changes))
