@@ -33,6 +33,20 @@ Install with Homebrew:
 brew install overthinker1127/tap/tui-worktree
 ```
 
+Install Linux packages from a GitHub release:
+
+```bash
+sudo apt install ./tui-worktree_*_linux_amd64.deb
+sudo rpm -i ./tui-worktree-*.x86_64.rpm
+sudo apk add --allow-untrusted ./tui-worktree_*_linux_amd64.apk
+```
+
+Chocolatey packages are generated as release assets. After the package is published to the Chocolatey Community Repository:
+
+```powershell
+choco install tui-worktree
+```
+
 Or install with Go:
 
 ```bash
@@ -118,6 +132,12 @@ gofmt -w ./cmd ./internal
 go mod tidy
 go test ./...
 go vet ./...
+```
+
+Build a local release snapshot:
+
+```bash
+goreleaser release --snapshot --clean --skip=publish,chocolatey
 ```
 
 The compatibility command is available at:

@@ -1,0 +1,124 @@
+version: 2
+
+project_name: tui-worktree
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tui-worktree
+    main: ./cmd/tui-worktree
+    binary: tui-worktree
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid=
+
+  - id: tui-worktree-windows
+    main: ./cmd/tui-worktree
+    binary: tui-worktree
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid=
+
+archives:
+  - id: tui-worktree
+    ids:
+      - tui-worktree
+      - tui-worktree-windows
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+nfpms:
+  - id: linux-packages
+    ids:
+      - tui-worktree
+    package_name: tui-worktree
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: overthinker1127
+    homepage: https://github.com/overthinker1127/tui-worktree
+    maintainer: overthinker1127 <overthinker1127@naver.com>
+    description: |-
+      Terminal UI for reviewing and managing Git worktrees.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/tui-worktree/LICENSE
+
+chocolateys:
+  - name: tui-worktree
+    ids:
+      - tui-worktree
+    package_source_url: https://github.com/overthinker1127/tui-worktree
+    owners: overthinker1127
+    title: tui-worktree
+    authors: overthinker1127
+    project_url: https://github.com/overthinker1127/tui-worktree
+    license_url: https://github.com/overthinker1127/tui-worktree/blob/main/LICENSE
+    project_source_url: https://github.com/overthinker1127/tui-worktree
+    docs_url: https://github.com/overthinker1127/tui-worktree/blob/main/README.md
+    bug_tracker_url: https://github.com/overthinker1127/tui-worktree/issues
+    tags: git worktree tui cli
+    summary: Terminal UI for reviewing and managing Git worktrees
+    description: |
+      tui-worktree is a terminal UI for reviewing and managing linked Git worktrees.
+      It presents worktrees, changed files, and diffs in a compact layout.
+    release_notes: "https://github.com/overthinker1127/tui-worktree/releases/tag/{{ .Tag }}"
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
+    source_repo: "https://push.chocolatey.org/"
+    skip_publish: true
+
+release:
+  github:
+    owner: overthinker1127
+    name: tui-worktree
+  prerelease: auto
