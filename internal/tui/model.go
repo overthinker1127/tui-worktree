@@ -638,9 +638,10 @@ func (m *Model) openSelectedFileInEditor() tea.Cmd {
 	if worktreePath == "" {
 		worktreePath = "."
 	}
-	cmd := exec.Command("sh", "-c", `${EDITOR:-vi} "$@"`, "editor", selected.Path)
+	line := editorTargetLine(m.selectedDiff())
+	cmd := exec.Command("sh", "-c", editorLaunchScript(editor, line), "editor", selected.Path)
 	cmd.Dir = worktreePath
-	cmd.Env = append(os.Environ(), "EDITOR="+editor)
+	cmd.Env = append(os.Environ(), "EDITOR="+editor, fmt.Sprintf("LINE=%d", line))
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})
@@ -1335,15 +1336,24 @@ func (m *Model) refreshDiff() {
 		m.setDiffContent("No changes in this worktree.")
 		return
 	}
-	diff := m.diffs[m.diffKey(m.changes[m.selected])]
-	if diff == "" {
-		diff = m.diffs[m.changes[m.selected].Path]
-	}
+	diff := m.selectedDiff()
 	if diff == "" {
 		diff = fmt.Sprintf("No diff loaded for %s", m.changes[m.selected].Path)
 	}
 	m.setDiffContent(diff)
 	m.viewport.GotoTop()
+}
+
+func (m Model) selectedDiff() string {
+	selected := m.Selected()
+	if selected.Path == "" {
+		return ""
+	}
+	diff := m.diffs[m.diffKey(selected)]
+	if diff == "" {
+		diff = m.diffs[selected.Path]
+	}
+	return diff
 }
 
 func (m *Model) setDiffContent(diff string) {

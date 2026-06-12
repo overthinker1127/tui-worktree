@@ -1571,6 +1571,59 @@ func TestEditKeyOpensSelectedFileCommand(t *testing.T) {
 	}
 }
 
+func TestEditorTargetLineUsesFirstChangedNewLine(t *testing.T) {
+	diff := strings.Join([]string{
+		"diff --git a/a.go b/a.go",
+		"@@ -10,5 +10,6 @@",
+		" unchanged",
+		"-old",
+		"+new",
+		" context",
+		"@@ -40,3 +41,4 @@",
+		" context",
+		"+latest",
+	}, "\n")
+
+	if got := editorTargetLine(diff); got != 11 {
+		t.Fatalf("editorTargetLine() = %d, want 11", got)
+	}
+}
+
+func TestEditorTargetLineUsesDeletionPositionWhenNoAddedLines(t *testing.T) {
+	diff := strings.Join([]string{
+		"diff --git a/a.go b/a.go",
+		"@@ -10,3 +10,2 @@",
+		" unchanged",
+		"-removed",
+		" context",
+	}, "\n")
+
+	if got := editorTargetLine(diff); got != 11 {
+		t.Fatalf("editorTargetLine() = %d, want 11", got)
+	}
+}
+
+func TestEditorLaunchScriptSupportsLineAwareEditors(t *testing.T) {
+	for _, tc := range []struct {
+		editor string
+		line   int
+		want   string
+	}{
+		{editor: "nvim", line: 12, want: `${EDITOR:-vi} "+${LINE}" "$1"`},
+		{editor: "vim -f", line: 12, want: `${EDITOR:-vi} "+${LINE}" "$1"`},
+		{editor: "code --wait", line: 12, want: `${EDITOR:-vi} --goto "$1:$LINE"`},
+		{editor: "code-insiders", line: 12, want: `${EDITOR:-vi} --goto "$1:$LINE"`},
+		{editor: "true", line: 12, want: `${EDITOR:-vi} "$1"`},
+		{editor: "nvim", line: 0, want: `${EDITOR:-vi} "$1"`},
+	} {
+		t.Run(tc.editor, func(t *testing.T) {
+			if got := editorLaunchScript(tc.editor, tc.line); got != tc.want {
+				t.Fatalf("editorLaunchScript(%q, %d) = %q, want %q", tc.editor, tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEditKeyShowsToastWhenNoFileSelected(t *testing.T) {
 	model := testModel(t)
 	model.changes = nil
