@@ -1309,7 +1309,7 @@ func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
 	}
 }
 
-func TestForgeCreateArgs(t *testing.T) {
+func TestPullRequestCreateArgs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		req  PullRequestRequest
@@ -1327,12 +1327,12 @@ func TestForgeCreateArgs(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := forgeCreateArgs(tc.req)
+			got, err := pullRequestCreateArgs(tc.req)
 			if err != nil {
-				t.Fatalf("forgeCreateArgs() error = %v", err)
+				t.Fatalf("pullRequestCreateArgs() error = %v", err)
 			}
 			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
-				t.Fatalf("forgeCreateArgs() = %#v, want %#v", got, tc.want)
+				t.Fatalf("pullRequestCreateArgs() = %#v, want %#v", got, tc.want)
 			}
 		})
 	}
