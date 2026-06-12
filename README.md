@@ -1,93 +1,67 @@
 # tui-worktree
 
-Terminal UI for reviewing and managing linked Git worktrees. It shows worktrees, changed files, and diffs in a compact PR-style layout, with shortcuts for opening files, creating PRs/MRs, merging branches, deleting worktrees, and switching themes.
+## Project overview
 
-## Requirements
+`tui-worktree` is a terminal UI for reviewing and managing linked Git worktrees. It presents worktrees, changed files, and diffs in a compact PR-style layout so you can move between worktrees, inspect changes, open files, and run common branch actions without leaving the terminal.
+
+The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the TUI.
+
+## Features
+
+- Browse linked Git worktrees and their changed files
+- Review file diffs with wrapping, line numbers, syntax-aware highlighting, and scroll preservation during refreshes
+- Auto-refresh worktree changes every 5 seconds
+- Open the selected file in `$EDITOR` near the first changed line when the editor supports line arguments
+- Create PRs/MRs through `gh` or `glab`
+- Merge a selected worktree branch into another worktree branch
+- Delete non-protected worktrees and branches after confirmation
+- Switch and persist themes from inside the TUI
+- Protect current/default worktrees and protected branch names from destructive actions
+
+## Installation
+
+Requirements:
 
 - Git
 - Go 1.26.2 or newer
 - A terminal with truecolor support
-- Optional: [Task](https://taskfile.dev/) for the provided development commands
-- Optional: `gh` or `glab` for PR/MR creation from the TUI
+- Optional: `gh` or `glab` for PR/MR creation
 
-## Installation
-
-Install from source:
+Install:
 
 ```bash
 go install github.com/overthinker1127/tui-worktree/cmd/tui-worktree@latest
 ```
 
-From a local checkout:
+Make sure your Go binary directory is on `PATH`. Common locations are `$(go env GOPATH)/bin` or `GOBIN` when configured.
 
-```bash
-task install
-```
+## Usage examples
 
-If you do not use Task:
-
-```bash
-go install ./cmd/tui-worktree
-```
-
-## Usage
-
-Run against the current repository:
+Open the current repository:
 
 ```bash
 tui-worktree
 ```
 
-Run against another repository:
+Open another repository:
 
 ```bash
 tui-worktree --repo /path/to/repo
 ```
 
-Choose a theme for the current run:
+Use a specific theme for one run:
 
 ```bash
 tui-worktree --theme kanagawa
 ```
 
-Theme changes made from the TUI are saved to:
-
-```text
-~/.config/tui-worktree/config.json
-```
-
-The `--theme` flag overrides the saved theme for that run.
-
-## Development
-
-Run locally:
+Show help:
 
 ```bash
-task run
+tui-worktree --help
 ```
 
-Override the repository path:
-
-```bash
-task run REPO=/path/to/repo
-```
-
-Run checks:
-
-```bash
-task check
-```
-
-Without Task:
-
-```bash
-gofmt -w ./cmd ./internal
-go mod tidy
-go test ./...
-go run ./cmd/tui-worktree --help
-```
-
-## Key Bindings
+Common key bindings:
 
 - `1` / `2` / `3`: focus worktrees, files, or diff panel
 - `tab` / `shift+tab`: next or previous worktree
@@ -104,13 +78,17 @@ go run ./cmd/tui-worktree --help
 - `t`: open theme picker
 - `q` / `ctrl+c`: quit
 
-Worktree changes auto-refresh every 5 seconds.
+## Configuration
 
-## Editor Support
+The app stores user configuration at:
 
-The `e` shortcut opens the selected file near the first changed line when the editor supports line arguments.
+```text
+~/.config/tui-worktree/config.json
+```
 
-Supported editor styles include:
+Theme changes made from the TUI are saved there automatically. The `--theme` flag overrides the saved theme for the current run only.
+
+Editor integration uses `$EDITOR`. Known editor families receive line hints for the first changed line:
 
 - Vim-style editors: `vi`, `vim`, `nvim`, `nano`, `micro`, `emacs`
 - VS Code-style editors: `code`, `code-insiders`, `codium`, `vscodium`, `cursor`, `windsurf`
@@ -119,42 +97,29 @@ Supported editor styles include:
 
 Unknown editors still open the selected file without a line hint.
 
-## Safety Notes
+## Development
 
-- Protected branches and the current/default worktree are guarded against deletion.
-- Delete and merge operations are explicit actions and should be reviewed before confirmation.
-- PR/MR creation requires `gh` or `glab` to be authenticated.
-
-## Smoke Test
-
-Create a temporary repository with representative changes and open it in the TUI:
+Run the app from source:
 
 ```bash
-task smoke
+go run ./cmd/tui-worktree --repo /path/to/repo
 ```
 
-Manual equivalent:
+Format, tidy, and test:
 
 ```bash
-tmp=$(mktemp -d)
-git -C "$tmp" init -b main
-git -C "$tmp" config user.email smoke@example.com
-git -C "$tmp" config user.name Smoke
-printf "hello\n" > "$tmp/README.md"
-printf "remove me\n" > "$tmp/deleted.txt"
-printf "rename me\n" > "$tmp/old name.txt"
-printf "\x00\x01\x02" > "$tmp/image.bin"
-git -C "$tmp" add .
-git -C "$tmp" commit -m init
-printf "hello\nworld\n" > "$tmp/README.md"
-printf "new\n" > "$tmp/added.txt"
-git -C "$tmp" add added.txt
-rm "$tmp/deleted.txt"
-git -C "$tmp" mv "old name.txt" "new name.txt"
-printf "\x03\x04" >> "$tmp/image.bin"
-tui-worktree --repo "$tmp"
+gofmt -w ./cmd ./internal
+go mod tidy
+go test ./...
+go vet ./...
+```
+
+The compatibility command is available at:
+
+```bash
+go run ./cmd/worktree-diff-tui --repo /path/to/repo
 ```
 
 ## License
 
-This project is released under the license in [LICENSE](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
