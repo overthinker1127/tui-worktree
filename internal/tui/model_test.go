@@ -431,6 +431,37 @@ func TestListLineSpacesUsePanelBackground(t *testing.T) {
 	}
 }
 
+func TestEmptyFileListMessageUsesPanelBackground(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		Theme:   theme.NewStyles(tm),
+		Changes: nil,
+		Diffs:   map[string]string{},
+	})
+	files := model.renderFiles(36, 8)
+	background := styleBackgroundToken(model.styles.Panel)
+
+	if background == "" {
+		t.Fatal("panel background token should not be empty")
+	}
+	if !strings.Contains(files, "No changed files") {
+		t.Fatalf("file list missing empty message: %q", files)
+	}
+	for _, line := range strings.Split(files, "\n") {
+		if !strings.Contains(line, "No changed files") {
+			continue
+		}
+		if !strings.Contains(line, background) {
+			t.Fatalf("empty file list message should use panel background %q in %q", background, line)
+		}
+		return
+	}
+	t.Fatalf("file list missing empty message line: %q", files)
+}
+
 func TestFooterAlignsToRightEdge(t *testing.T) {
 	model := testModel(t)
 	model.width = 160
