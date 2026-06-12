@@ -107,15 +107,15 @@ func TestQuestionMarkDoesNotOpenHelpOverlay(t *testing.T) {
 
 func TestThemePickerAppliesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themeNames = []string{"tokyonight", "gruvbox"}
+	model.themeNames = []string{"tokyonight", "gruvbox-dark"}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	got := next.(Model)
 
-	if got.themeName != "gruvbox" {
-		t.Fatalf("themeName = %q, want gruvbox", got.themeName)
+	if got.themeName != "gruvbox-dark" {
+		t.Fatalf("themeName = %q, want gruvbox-dark", got.themeName)
 	}
 	if strings.Contains(got.View().Content, "Theme changed") {
 		t.Fatalf("theme success message should be hidden: %q", got.View().Content)
@@ -243,7 +243,7 @@ func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
 	model.themeNames = []string{
-		"ayu", "catppuccin", "dracula", "everforest", "gruvbox",
+		"ayu", "catppuccin", "dracula", "everforest", "gruvbox-dark",
 		"kanagawa", "monokai", "nord", "one-dark", "rose-pine",
 		"solarized", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
 	}
@@ -1211,6 +1211,46 @@ func TestPRKeyOpensFormWhenForgeCLIExists(t *testing.T) {
 	}
 }
 
+func TestPRFormInputsUseThemeColors(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		Theme: theme.NewStyles(tm),
+		Worktrees: []WorktreeState{{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "feature"},
+		}},
+	})
+	model.focusedPane = paneWorktrees
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	got := next.(Model)
+	background := styleBackgroundToken(got.styles.Panel)
+	muted := styleForegroundToken(got.styles.Muted)
+
+	if background == "" || muted == "" {
+		t.Fatal("theme tokens should not be empty")
+	}
+	for name, view := range map[string]string{
+		"title": got.prTitle.View(),
+		"body":  got.prBody.View(),
+	} {
+		if !strings.Contains(view, background) {
+			t.Fatalf("PR %s input should use panel background %q in %q", name, background, view)
+		}
+		if !strings.Contains(view, muted) {
+			t.Fatalf("PR %s placeholder should use muted foreground %q in %q", name, muted, view)
+		}
+	}
+	for _, line := range strings.Split(got.prBody.View(), "\n") {
+		if !strings.Contains(line, background) {
+			t.Fatalf("PR body line should use panel background %q in %q", background, line)
+		}
+	}
+}
+
 func TestPRFormTabTogglesFocusAndEscCloses(t *testing.T) {
 	model := testModel(t)
 	model.findForgeCLI = func() (string, bool) { return "glab", true }
@@ -1955,7 +1995,7 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 
 func TestMouseClickSelectsTheme(t *testing.T) {
 	model := testModel(t)
-	model.themeNames = []string{"tokyonight", "gruvbox"}
+	model.themeNames = []string{"tokyonight", "gruvbox-dark"}
 	model.openThemePicker()
 	overlay := model.renderThemePicker()
 	x, y := model.overlayPosition(overlay)
@@ -1963,8 +2003,8 @@ func TestMouseClickSelectsTheme(t *testing.T) {
 	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 3}))
 	got := next.(Model)
 
-	if got.themeName != "gruvbox" {
-		t.Fatalf("themeName = %q, want gruvbox", got.themeName)
+	if got.themeName != "gruvbox-dark" {
+		t.Fatalf("themeName = %q, want gruvbox-dark", got.themeName)
 	}
 	if got.pickingTheme {
 		t.Fatal("theme picker still open after mouse selection")

@@ -870,6 +870,7 @@ func (m *Model) resetPRForm() {
 	m.prTitle.Prompt = ""
 	m.prTitle.Placeholder = "PR title"
 	m.prTitle.SetWidth(48)
+	m.prTitle.SetStyles(m.prTextInputStyles(48))
 	m.prTitle.Focus()
 
 	m.prBody = textarea.New()
@@ -878,9 +879,83 @@ func (m *Model) resetPRForm() {
 	m.prBody.ShowLineNumbers = false
 	m.prBody.SetWidth(48)
 	m.prBody.SetHeight(5)
+	m.prBody.SetStyles(m.prTextareaStyles(48, 5))
 	m.prBody.Blur()
 
 	m.prFormFocus = prFormTitle
+}
+
+func (m Model) prTextInputStyles(width int) textinput.Styles {
+	base := m.prInputStyle(m.styles.Diff)
+	placeholder := m.prInputStyle(m.styles.Muted)
+	prompt := m.prInputStyle(m.styles.DiffHunk)
+	if width > 0 {
+		base = base.Width(width)
+		placeholder = placeholder.Width(width)
+	}
+	return textinput.Styles{
+		Focused: textinput.StyleState{
+			Text:        base,
+			Placeholder: placeholder,
+			Suggestion:  placeholder,
+			Prompt:      prompt,
+		},
+		Blurred: textinput.StyleState{
+			Text:        base,
+			Placeholder: placeholder,
+			Suggestion:  placeholder,
+			Prompt:      prompt,
+		},
+		Cursor: textinput.CursorStyle{
+			Color: m.styles.DiffHunk.GetForeground(),
+			Shape: tea.CursorBlock,
+			Blink: true,
+		},
+	}
+}
+
+func (m Model) prTextareaStyles(width, height int) textarea.Styles {
+	base := m.prInputStyle(m.styles.Diff)
+	placeholder := m.prInputStyle(m.styles.Muted)
+	prompt := m.prInputStyle(m.styles.DiffHunk)
+	if width > 0 {
+		base = base.Width(width)
+		placeholder = placeholder.Width(width)
+	}
+	if height > 0 {
+		base = base.Height(height)
+	}
+	return textarea.Styles{
+		Focused: textarea.StyleState{
+			Base:             base,
+			Text:             base,
+			LineNumber:       placeholder,
+			CursorLineNumber: placeholder,
+			CursorLine:       base,
+			EndOfBuffer:      base,
+			Placeholder:      placeholder,
+			Prompt:           prompt,
+		},
+		Blurred: textarea.StyleState{
+			Base:             base,
+			Text:             base,
+			LineNumber:       placeholder,
+			CursorLineNumber: placeholder,
+			CursorLine:       base,
+			EndOfBuffer:      base,
+			Placeholder:      placeholder,
+			Prompt:           prompt,
+		},
+		Cursor: textarea.CursorStyle{
+			Color: m.styles.DiffHunk.GetForeground(),
+			Shape: tea.CursorBlock,
+			Blink: true,
+		},
+	}
+}
+
+func (m Model) prInputStyle(style lipgloss.Style) lipgloss.Style {
+	return style.Background(m.styles.Panel.GetBackground())
 }
 
 func (m Model) handlePRFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1534,11 +1609,15 @@ func (m Model) renderPRForm() string {
 	width := min(max(48, m.width-8), 78)
 	titleInput := m.prTitle
 	bodyInput := m.prBody
-	titleInput.SetWidth(max(1, panelInnerWidth(width)))
-	bodyInput.SetWidth(max(1, panelInnerWidth(width)))
+	inputWidth := max(1, panelInnerWidth(width))
+	titleInput.SetWidth(inputWidth)
+	titleInput.SetStyles(m.prTextInputStyles(inputWidth))
+	bodyInput.SetWidth(inputWidth)
 
 	bodyPanelHeight := min(10, max(5, m.bodyHeight()-8))
-	bodyInput.SetHeight(max(1, panelInnerHeight(bodyPanelHeight)))
+	bodyInputHeight := max(1, panelInnerHeight(bodyPanelHeight))
+	bodyInput.SetHeight(bodyInputHeight)
+	bodyInput.SetStyles(m.prTextareaStyles(inputWidth, bodyInputHeight))
 
 	header := m.styles.Title.
 		Background(m.overlayPanelStyle().GetBackground()).

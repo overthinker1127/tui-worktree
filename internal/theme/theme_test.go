@@ -15,7 +15,6 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 		"catppuccin-latte",
 		"catppuccin-mocha",
 		"catppuccin-macchiato",
-		"gruvbox",
 		"gruvbox-dark",
 		"gruvbox-light",
 		"solarized",
@@ -75,7 +74,7 @@ func TestNamesIncludesOnlyNamedThemes(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"vscode", "catppuccin", "gruvbox", "solarized", "tokyonight", "kanagawa"} {
+	for _, want := range []string{"vscode", "catppuccin", "gruvbox-dark", "solarized", "tokyonight", "kanagawa"} {
 		if !contains(names, want) {
 			t.Fatalf("Names() missing %q: %#v", want, names)
 		}
