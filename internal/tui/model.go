@@ -150,6 +150,7 @@ type Model struct {
 	confirmDelete      bool
 	creatingPR         bool
 	pickingMergeTarget bool
+	confirmMerge       bool
 	submittingPR       bool
 	deletingWorktree   bool
 	mergingBranch      bool
@@ -158,6 +159,7 @@ type Model struct {
 	prFormFocus        prFormFocus
 	mergeTargetList    list.Model
 	mergeSource        gitview.Worktree
+	mergeRequest       MergeRequest
 	forgeCLI           string
 	focusedPane        focusedPane
 	loadDiff           func(context.Context, string, gitview.FileChange) string
@@ -271,6 +273,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.showSuccessToast("PR/MR created")
 	case mergeBranchFinishedMsg:
 		m.mergingBranch = false
+		m.confirmMerge = false
+		m.mergeRequest = MergeRequest{}
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("merge failed: %s", msg.err))
 		}
@@ -333,6 +337,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.confirmDelete {
 			return m.handleDeleteConfirmKey(msg)
+		}
+		if m.confirmMerge {
+			return m.handleMergeConfirmKey(msg)
 		}
 		if m.pickingTheme {
 			return m.handleThemeKey(msg)
@@ -461,6 +468,8 @@ func (m Model) View() tea.View {
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
 	} else if m.creatingPR {
 		body = m.renderOverlay(body, m.renderPRForm())
+	} else if m.confirmMerge {
+		body = m.renderOverlay(body, m.renderMergeConfirm())
 	} else if m.pickingMergeTarget {
 		body = m.renderOverlay(body, m.renderMergeTargetPicker())
 	}
@@ -1100,18 +1109,28 @@ func (m Model) handleMergeTargetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.mergingBranch {
 			return m, nil
 		}
-		cmd := m.mergeSelectedTargetCmd()
-		return m, cmd
+		return m, m.openMergeConfirm()
 	}
 	var cmd tea.Cmd
 	m.mergeTargetList, cmd = m.mergeTargetList.Update(msg)
 	return m, cmd
 }
 
-func (m *Model) mergeSelectedTargetCmd() tea.Cmd {
-	target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem)
+func (m *Model) openMergeConfirm() tea.Cmd {
+	request, ok := m.selectedMergeRequest()
 	if !ok {
 		return m.showErrorToast("no merge target branch")
+	}
+	m.mergeRequest = request
+	m.pickingMergeTarget = false
+	m.confirmMerge = true
+	return nil
+}
+
+func (m Model) selectedMergeRequest() (MergeRequest, bool) {
+	target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem)
+	if !ok {
+		return MergeRequest{}, false
 	}
 	request := MergeRequest{
 		Source: m.mergeSource,
@@ -1119,6 +1138,34 @@ func (m *Model) mergeSelectedTargetCmd() tea.Cmd {
 	}
 	if request.Source.Path == "" {
 		request.Source = m.SelectedWorktree()
+	}
+	return request, true
+}
+
+func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc", "n", "m":
+		if m.mergingBranch {
+			return m, nil
+		}
+		m.confirmMerge = false
+		m.mergeRequest = MergeRequest{}
+		return m, nil
+	case "enter", "y":
+		if m.mergingBranch {
+			return m, nil
+		}
+		return m, m.mergeConfirmedTargetCmd()
+	}
+	return m, nil
+}
+
+func (m *Model) mergeConfirmedTargetCmd() tea.Cmd {
+	request := m.mergeRequest
+	if request.Source.Path == "" || request.Target.Path == "" {
+		return m.showErrorToast("no merge target branch")
 	}
 	m.mergingBranch = true
 	return func() tea.Msg {
@@ -1251,6 +1298,8 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 	m.pickingMergeTarget = false
 	m.mergingBranch = false
 	m.mergeSource = gitview.Worktree{}
+	m.confirmMerge = false
+	m.mergeRequest = MergeRequest{}
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
@@ -1666,6 +1715,25 @@ func (m Model) renderMergeTargetPicker() string {
 	height := min(max(6, lipgloss.Height(targets.View())), max(6, m.bodyHeight()-4))
 	targets.SetSize(width, height)
 	return m.overlayPanelStyle().Width(width+4).Padding(1, 2).Render(targets.View())
+}
+
+func (m Model) renderMergeConfirm() string {
+	request := m.mergeRequest
+	source := worktreeLabel(request.Source)
+	target := worktreeLabel(request.Target)
+	width := min(max(50, m.width-12), 72)
+	contentWidth := max(1, width-4)
+	lines := []string{
+		m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(contentWidth).Render(iconMerge + " Merge " + source + " into " + target),
+		m.styles.Diff.Width(contentWidth).Render("Source: " + source),
+		m.styles.Diff.Width(contentWidth).Render("Target: " + target),
+		"",
+		m.styles.Muted.Width(contentWidth).Render("Target worktree will be updated first."),
+		m.styles.Muted.Width(contentWidth).Render("Dirty files and conflicts will be checked before merging."),
+		"",
+		m.styles.FileSelected.Width(contentWidth).Render("[Enter] merge  [Y]es  [Esc] cancel  [N]o"),
+	}
+	return m.overlayPanelStyle().Width(width).Padding(1, 2).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) overlayPanelStyle() lipgloss.Style {

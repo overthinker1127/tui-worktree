@@ -1083,7 +1083,7 @@ func TestMergeKeyOpensTargetListWithDefaultBranchSelected(t *testing.T) {
 	}
 }
 
-func TestMergeTargetEnterRunsMergeCallback(t *testing.T) {
+func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	model := testModel(t)
 	model.worktrees = []WorktreeState{
 		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
@@ -1099,20 +1099,64 @@ func TestMergeTargetEnterRunsMergeCallback(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+	if cmd != nil {
+		t.Fatal("merge target enter should show confirmation before returning merge command")
+	}
+	if !got.confirmMerge {
+		t.Fatal("merge target enter should open merge confirmation")
+	}
+	if got.pickingMergeTarget {
+		t.Fatal("merge confirmation should close target picker")
+	}
+	view := ansi.Strip(got.View().Content)
+	for _, want := range []string{"Merge feature into main", "Target worktree will be updated first.", "Dirty files and conflicts will be checked before merging.", "[Enter] merge", "[Esc] cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("merge confirm view missing %q: %q", want, view)
+		}
+	}
+
+	next, cmd = got.Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	if cmd == nil {
-		t.Fatal("merge target enter should return merge command")
+		t.Fatal("merge confirm enter should return merge command")
 	}
 	next, _ = next.(Model).Update(cmd())
-	got := next.(Model)
+	got = next.(Model)
 
 	if gotReq.Source.Branch != "feature" || gotReq.Target.Branch != "main" {
 		t.Fatalf("merge request = %#v, want feature into main", gotReq)
 	}
-	if got.pickingMergeTarget {
-		t.Fatal("successful merge should close target picker")
+	if got.confirmMerge || got.pickingMergeTarget {
+		t.Fatal("successful merge should close merge overlays")
 	}
 	if got.toast.Kind != toastSuccess || !strings.Contains(got.toast.Message, "merged feature into main") {
 		t.Fatalf("toast = %#v, want merge success", got.toast)
+	}
+}
+
+func TestMergeConfirmEscCancelsMerge(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{Worktree: gitview.Worktree{Path: "/repo", Branch: "main", DefaultBranch: true}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	model.mergeBranch = func(context.Context, MergeRequest) error {
+		t.Fatal("cancel should not run merge")
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatal("merge confirm cancel should not return command")
+	}
+	if got.confirmMerge || got.pickingMergeTarget || got.mergeRequest.Source.Path != "" {
+		t.Fatalf("merge confirmation state = confirm:%v picker:%v request:%#v, want cleared", got.confirmMerge, got.pickingMergeTarget, got.mergeRequest)
 	}
 }
 
@@ -1127,9 +1171,10 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 	model.mergeBranch = func(context.Context, MergeRequest) error { return nil }
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	if cmd == nil {
-		t.Fatal("first merge enter should return command")
+		t.Fatal("merge confirm enter should return command")
 	}
 	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	got := next.(Model)
