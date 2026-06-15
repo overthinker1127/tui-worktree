@@ -2,9 +2,19 @@
 
 ## Project overview
 
-`tui-worktree` is a terminal UI for reviewing and managing linked Git worktrees. It presents worktrees, changed files, and diffs in a compact PR-style layout so you can move between worktrees, inspect changes, open files, and run common branch actions without leaving the terminal.
+`tui-worktree` helps you review AI-generated work without losing your place.
+
+When you work with tools like Superpower, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
+
+`tui-worktree` puts that review in one place. You can move through worktrees, see changed files, read the diff, filter by path, and open the exact file you care about without breaking flow.
 
 The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the TUI.
+
+## Why this exists
+
+AI coding is most useful when the user can review the result comfortably. If the review step is noisy, slow, or hard to follow, it becomes difficult to trust the work even when the code might be good.
+
+This app is meant to be the comfortable viewing layer between AI work and your next decision. It makes it easier to scan, compare, and inspect changes before you hand them off to merge, continue editing, or throw them away.
 
 ## Features
 
