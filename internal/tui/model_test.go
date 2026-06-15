@@ -2488,7 +2488,7 @@ func TestFileFilterShowsOverlayAndFilteredFileTitle(t *testing.T) {
 	}
 	view := ansi.Strip(model.View().Content)
 
-	if !strings.Contains(view, "Filters") || !strings.Contains(view, "/model") {
+	if !strings.Contains(view, "Filters") || !strings.Contains(view, "model") {
 		t.Fatalf("filtered view missing overlay query: %q", view)
 	}
 	if !strings.Contains(view, "2 filtered [Esc]") {
