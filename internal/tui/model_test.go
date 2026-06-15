@@ -275,7 +275,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 
 	footer := model.footerText()
 	plain := ansi.Strip(footer)
-	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "e edit", "t themes", "q quit"} {
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "/ filter", "e edit", "t themes", "q quit"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
@@ -293,7 +293,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
 	}
-	for _, want := range []string{"1/2/3", "tab", "hjkl", "e", "t", "q"} {
+	for _, want := range []string{"1/2/3", "tab", "hjkl", "/", "e", "t", "q"} {
 		if !strings.Contains(footer, "\x1b[1;") || !strings.Contains(plain, want) {
 			t.Fatalf("footer key %q should be bold in %q", want, footer)
 		}
@@ -390,23 +390,63 @@ func TestPanelTitlePaddingUsesPanelBackground(t *testing.T) {
 	}
 }
 
-func TestSelectedListRowStripsNestedAnsiStyles(t *testing.T) {
+func TestSelectedFileRowPreservesLineStatColors(t *testing.T) {
 	tm, err := theme.Preset("solarized-light")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	styles := theme.NewStyles(tm)
-	content := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 2, Deletions: 1})
-	row := renderScrollableListRow(styles.FileSelected, iconSelected+" ", content, 0, 60, true)
+	content := renderFileLineWithBackground(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 2, Deletions: 1}, "", styles.FileSelected.GetBackground())
+	row := renderScrollableListRow(styles.FileSelected, iconSelected+" ", content, 0, 60, false)
 
 	for _, token := range []string{
-		styleForegroundToken(styles.Muted),
 		styleForegroundToken(styles.Added),
 		styleForegroundToken(styles.Deleted),
 	} {
-		if token != "" && strings.Contains(row, token) {
-			t.Fatalf("selected row should not contain nested foreground token %q in %q", token, row)
+		if token != "" && !strings.Contains(row, token) {
+			t.Fatalf("selected row should preserve line stat token %q in %q", token, row)
 		}
+	}
+	if token := styleBackgroundToken(styles.Panel); token != "" && strings.Contains(row, token) {
+		t.Fatalf("selected row should not contain panel background token %q in %q", token, row)
+	}
+}
+
+func TestSelectedFileListPreservesLineStatColors(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{{
+		Path:      "internal/tui/model.go",
+		Status:    gitview.Modified,
+		Additions: 2,
+		Deletions: 1,
+	}}
+	model.selected = 0
+	model.refreshDiff()
+
+	files := model.renderFiles(48, 6)
+	for _, token := range []string{
+		styleForegroundToken(model.styles.Added),
+		styleForegroundToken(model.styles.Deleted),
+	} {
+		if token != "" && !strings.Contains(files, token) {
+			t.Fatalf("selected file list should preserve line stat token %q in %q", token, files)
+		}
+	}
+}
+
+func TestFileFilterMatchRendersBold(t *testing.T) {
+	tm, err := theme.Preset("solarized-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	styles := theme.NewStyles(tm)
+	line := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified}, "model")
+
+	if !strings.Contains(line, "\x1b[1;") {
+		t.Fatalf("filtered file line should bold matching text: %q", line)
+	}
+	if got := ansi.Strip(line); !strings.Contains(got, "internal/tui/model.go") {
+		t.Fatalf("filtered file line changed visible path: %q", got)
 	}
 }
 
@@ -417,7 +457,7 @@ func TestListLineSpacesUsePanelBackground(t *testing.T) {
 	}
 	styles := theme.NewStyles(tm)
 	background := styleBackgroundToken(styles.Panel)
-	fileLine := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 6, Deletions: 2})
+	fileLine := renderFileLine(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 6, Deletions: 2}, "")
 	worktreeLine := renderWorktreeLine(styles, 0, WorktreeState{Worktree: gitview.Worktree{Branch: "main", Current: true}})
 
 	if background == "" {
@@ -2425,6 +2465,141 @@ func TestFileListWindowsLargeChangeSets(t *testing.T) {
 	lastView := next.(Model).View().Content
 	if !strings.Contains(lastView, "file-t.go") || strings.Contains(lastView, "file-a.go") {
 		t.Fatalf("last view did not window around selected file: %q", lastView)
+	}
+}
+
+func TestFileFilterShowsOverlayAndFilteredFileTitle(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 4, Deletions: 1},
+		{Path: "internal/tui/model_test.go", Status: gitview.Modified, Additions: 12},
+		{Path: "internal/git/repository.go", Status: gitview.Modified, Additions: 2},
+	}
+	model.diffs = map[string]string{
+		model.SelectedWorktree().Path + "\x00" + "internal/tui/model.go": "diff --git a/internal/tui/model.go b/internal/tui/model.go\n+model",
+	}
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = next.(Model)
+	for _, key := range []rune{'m', 'o', 'd', 'e', 'l'} {
+		next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: string(key), Code: key}))
+		model = next.(Model)
+	}
+	view := ansi.Strip(model.View().Content)
+
+	if !strings.Contains(view, "Filters") || !strings.Contains(view, "/model") {
+		t.Fatalf("filtered view missing overlay query: %q", view)
+	}
+	if !strings.Contains(view, "2 filtered [Esc]") {
+		t.Fatalf("filtered title missing filtered state: %q", view)
+	}
+	if strings.Contains(view, "2 files /model") {
+		t.Fatalf("filtered title should not render raw query: %q", view)
+	}
+	if got := len(model.visibleChanges()); got != 2 {
+		t.Fatalf("visible filtered changes = %d, want 2", got)
+	}
+	if got := model.Selected().Path; got != "internal/tui/model.go" {
+		t.Fatalf("selected filtered file = %q, want internal/tui/model.go", got)
+	}
+	if strings.Contains(view, "internal/git/repository.go") {
+		t.Fatalf("filtered view included non-match: %q", view)
+	}
+}
+
+func TestFileFilterEnterKeepsFilterAndClosesOverlay(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "internal/tui/model.go", Status: gitview.Modified},
+		{Path: "internal/git/repository.go", Status: gitview.Modified},
+	}
+	model.diffs = map[string]string{
+		model.SelectedWorktree().Path + "\x00" + "internal/tui/model.go": "diff --git a/internal/tui/model.go b/internal/tui/model.go\n+model",
+	}
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = next.(Model)
+	for _, key := range []rune{'m', 'o', 'd', 'e', 'l'} {
+		next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: string(key), Code: key}))
+		model = next.(Model)
+	}
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	model = next.(Model)
+	view := ansi.Strip(model.View().Content)
+
+	if strings.Contains(view, "Filters") || strings.Contains(view, "1 files /model") {
+		t.Fatalf("enter should close filter overlay and hide query: %q", view)
+	}
+	if !strings.Contains(view, "1 filtered [Esc]") || !strings.Contains(view, "internal/tui/model.go") {
+		t.Fatalf("enter should keep active filtered list: %q", view)
+	}
+	if strings.Contains(view, "internal/git/repository.go") {
+		t.Fatalf("filter should remain active after enter: %q", view)
+	}
+}
+
+func TestFileFilterEscClearsFilterAndPreservesSelection(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "README.md", Status: gitview.Modified},
+		{Path: "internal/tui/model.go", Status: gitview.Modified},
+		{Path: "internal/tui/model_test.go", Status: gitview.Modified},
+	}
+	model.selected = 1
+	model.diffs = map[string]string{
+		model.SelectedWorktree().Path + "\x00" + "internal/tui/model.go": "diff --git a/internal/tui/model.go b/internal/tui/model.go\n+model",
+	}
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = next.(Model)
+	for _, key := range []rune{'m', 'o', 'd', 'e', 'l'} {
+		next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: string(key), Code: key}))
+		model = next.(Model)
+	}
+	if got := model.Selected().Path; got != "internal/tui/model.go" {
+		t.Fatalf("filtered selected path = %q, want internal/tui/model.go", got)
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = next.(Model)
+	view := ansi.Strip(model.View().Content)
+
+	if strings.Contains(view, "filtered") || strings.Contains(view, "Filters") {
+		t.Fatalf("esc did not clear filter: %q", view)
+	}
+	if !strings.Contains(view, "3 files") || !strings.Contains(view, "README.md") {
+		t.Fatalf("esc did not restore full file list: %q", view)
+	}
+	if got := model.Selected().Path; got != "internal/tui/model.go" {
+		t.Fatalf("selection after clearing filter = %q, want internal/tui/model.go", got)
+	}
+}
+
+func TestFileFilterSelectsFirstMatchWhenCurrentFileDoesNotMatch(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "README.md", Status: gitview.Modified},
+		{Path: "internal/tui/model.go", Status: gitview.Modified},
+		{Path: "internal/git/repository.go", Status: gitview.Modified},
+	}
+	model.selected = 0
+	model.diffs = map[string]string{
+		model.SelectedWorktree().Path + "\x00" + "internal/tui/model.go": "diff --git a/internal/tui/model.go b/internal/tui/model.go\n+model",
+	}
+	model.refreshDiff()
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = next.(Model)
+	for _, key := range []rune{'m', 'o', 'd', 'e', 'l'} {
+		next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: string(key), Code: key}))
+		model = next.(Model)
+	}
+
+	if got := model.Selected().Path; got != "internal/tui/model.go" {
+		t.Fatalf("selected path after filtering = %q, want first match", got)
 	}
 }
 

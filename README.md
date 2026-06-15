@@ -98,6 +98,7 @@ Common key bindings:
 - `tab` / `shift+tab`: next or previous worktree
 - `j` / `down`: next item or scroll diff down
 - `k` / `up`: previous item or scroll diff up
+- `/`: filter changed files by path; `esc` clears the filter
 - `g` / `home`: first file, or top of diff when diff is focused
 - `G` / `end`: last file, or bottom of diff when diff is focused
 - `e`: open selected file in `$EDITOR`

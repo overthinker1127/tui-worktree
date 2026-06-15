@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"os/exec"
@@ -138,6 +139,8 @@ type Model struct {
 	selected            int
 	worktreeScrollX     int
 	fileScrollX         int
+	fileFilter          string
+	filteringFiles      bool
 	mergeConfirmScrollX int
 	showLineNumbers     bool
 	revision            int
@@ -335,120 +338,142 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 	case tea.KeyPressMsg:
-		if m.creatingPR {
-			return m.handlePRFormKey(msg)
-		}
-		if m.confirmDelete {
-			return m.handleDeleteConfirmKey(msg)
-		}
-		if m.confirmMerge {
-			return m.handleMergeConfirmKey(msg)
-		}
-		if m.pickingTheme {
-			return m.handleThemeKey(msg)
-		}
-		if m.pickingMergeTarget {
-			return m.handleMergeTargetKey(msg)
-		}
-		if m.focusPaneShortcut(msg.String()) {
-			return m, m.ensureSelectedDiffCmd()
-		}
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "esc":
-			m.focusPreviousPane()
-			return m, nil
-		case "t":
-			m.openThemePicker()
-		case "w":
-			return m, m.toggleDiffWrap()
-		case "n":
-			return m, m.toggleLineNumbers()
-		case "e":
-			return m, m.openSelectedFileInEditor()
-		case "d":
-			return m, m.openDeleteConfirm()
-		case "p":
-			return m, m.openPRForm()
-		case "m":
-			return m, m.openMergeTargetPicker()
-		case "tab":
-			m.moveWorktree(1)
-			return m, m.ensureSelectedDiffCmd()
-		case "shift+tab":
-			m.moveWorktree(-1)
-			return m, m.ensureSelectedDiffCmd()
-		case "enter":
-			if m.focusedPane == paneWorktrees && len(m.changes) > 0 {
-				m.focusedPane = paneFiles
-				return m, m.ensureSelectedDiffCmd()
-			}
-			if m.focusedPane == paneFiles {
-				m.focusedPane = paneDiff
-				return m, m.ensureSelectedDiffCmd()
-			}
-		case "j", "down":
-			if m.focusedPane == paneWorktrees {
-				m.moveWorktree(1)
-				return m, m.ensureSelectedDiffCmd()
-			}
-			if m.focusedPane == paneDiff {
-				break
-			}
-			m.moveSelection(1)
-			return m, m.ensureSelectedDiffCmd()
-		case "k", "up":
-			if m.focusedPane == paneWorktrees {
-				m.moveWorktree(-1)
-				return m, m.ensureSelectedDiffCmd()
-			}
-			if m.focusedPane == paneDiff {
-				break
-			}
-			m.moveSelection(-1)
-			return m, m.ensureSelectedDiffCmd()
-		case "h", "left":
-			if m.focusedPane == paneDiff {
-				m.scrollDiffHorizontal(-1)
-				return m, nil
-			}
-			if m.scrollFocusedList(-1) {
-				return m, nil
-			}
-			break
-		case "l", "right":
-			if m.focusedPane == paneDiff {
-				m.scrollDiffHorizontal(1)
-				return m, nil
-			}
-			if m.scrollFocusedList(1) {
-				return m, nil
-			}
-			break
-		case "g", "home":
-			if m.focusedPane == paneDiff {
-				m.viewport.GotoTop()
-				return m, nil
-			}
-			m.focusedPane = paneFiles
-			m.selected = 0
-			m.refreshDiff()
-			return m, m.ensureSelectedDiffCmd()
-		case "G", "end":
-			if m.focusedPane == paneDiff {
-				m.viewport.GotoBottom()
-				return m, nil
-			}
-			if len(m.changes) > 0 {
-				m.focusedPane = paneFiles
-				m.selected = len(m.changes) - 1
-				m.refreshDiff()
-				return m, m.ensureSelectedDiffCmd()
-			}
-		}
+		return m.handleKey(msg)
 	}
 
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.filteringFiles {
+		return m.handleFileFilterKey(msg)
+	}
+	if m.creatingPR {
+		return m.handlePRFormKey(msg)
+	}
+	if m.confirmDelete {
+		return m.handleDeleteConfirmKey(msg)
+	}
+	if m.confirmMerge {
+		return m.handleMergeConfirmKey(msg)
+	}
+	if m.pickingTheme {
+		return m.handleThemeKey(msg)
+	}
+	if m.pickingMergeTarget {
+		return m.handleMergeTargetKey(msg)
+	}
+	if m.focusPaneShortcut(msg.String()) {
+		return m, m.ensureSelectedDiffCmd()
+	}
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		if m.fileFilter != "" {
+			selected := m.Selected()
+			m.fileFilter = ""
+			m.filteringFiles = false
+			m.restoreSelectedFile(selected, m.selected)
+			return m, m.ensureSelectedDiffCmd()
+		}
+		m.focusPreviousPane()
+		return m, nil
+	case "t":
+		m.openThemePicker()
+	case "w":
+		return m, m.toggleDiffWrap()
+	case "n":
+		return m, m.toggleLineNumbers()
+	case "/":
+		m.filteringFiles = true
+		m.focusedPane = paneFiles
+		return m, nil
+	case "e":
+		return m, m.openSelectedFileInEditor()
+	case "d":
+		return m, m.openDeleteConfirm()
+	case "p":
+		return m, m.openPRForm()
+	case "m":
+		return m, m.openMergeTargetPicker()
+	case "tab":
+		m.moveWorktree(1)
+		return m, m.ensureSelectedDiffCmd()
+	case "shift+tab":
+		m.moveWorktree(-1)
+		return m, m.ensureSelectedDiffCmd()
+	case "enter":
+		if m.focusedPane == paneWorktrees && len(m.visibleChanges()) > 0 {
+			m.focusedPane = paneFiles
+			return m, m.ensureSelectedDiffCmd()
+		}
+		if m.focusedPane == paneFiles {
+			m.focusedPane = paneDiff
+			return m, m.ensureSelectedDiffCmd()
+		}
+	case "j", "down":
+		if m.focusedPane == paneWorktrees {
+			m.moveWorktree(1)
+			return m, m.ensureSelectedDiffCmd()
+		}
+		if m.focusedPane == paneDiff {
+			break
+		}
+		m.moveSelection(1)
+		return m, m.ensureSelectedDiffCmd()
+	case "k", "up":
+		if m.focusedPane == paneWorktrees {
+			m.moveWorktree(-1)
+			return m, m.ensureSelectedDiffCmd()
+		}
+		if m.focusedPane == paneDiff {
+			break
+		}
+		m.moveSelection(-1)
+		return m, m.ensureSelectedDiffCmd()
+	case "h", "left":
+		if m.focusedPane == paneDiff {
+			m.scrollDiffHorizontal(-1)
+			return m, nil
+		}
+		if m.scrollFocusedList(-1) {
+			return m, nil
+		}
+		break
+	case "l", "right":
+		if m.focusedPane == paneDiff {
+			m.scrollDiffHorizontal(1)
+			return m, nil
+		}
+		if m.scrollFocusedList(1) {
+			return m, nil
+		}
+		break
+	case "g", "home":
+		if m.focusedPane == paneDiff {
+			m.viewport.GotoTop()
+			return m, nil
+		}
+		m.focusedPane = paneFiles
+		m.selected = 0
+		m.refreshDiff()
+		return m, m.ensureSelectedDiffCmd()
+	case "G", "end":
+		if m.focusedPane == paneDiff {
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		changes := m.visibleChanges()
+		if len(changes) > 0 {
+			m.focusedPane = paneFiles
+			m.selected = len(changes) - 1
+			m.refreshDiff()
+			return m, m.ensureSelectedDiffCmd()
+		}
+	}
+	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd
 }
@@ -467,6 +492,8 @@ func (m Model) View() tea.View {
 	footer := m.renderFooter()
 	if m.pickingTheme {
 		body = m.renderOverlay(body, m.renderThemePicker())
+	} else if m.filteringFiles {
+		body = m.renderOverlay(body, m.renderFileFilter())
 	} else if m.confirmDelete {
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
 	} else if m.creatingPR {
@@ -509,6 +536,7 @@ func (m Model) footerText() string {
 	default:
 		segments = append(segments,
 			m.footerHint(iconFile, "hjkl", "move"),
+			m.footerHint(iconFile, "/", "filter"),
 			m.footerHint(iconEdit, "e", "edit"),
 		)
 	}
@@ -566,10 +594,35 @@ func (m Model) autoRefreshCmd() tea.Cmd {
 }
 
 func (m Model) Selected() gitview.FileChange {
-	if len(m.changes) == 0 || m.selected < 0 || m.selected >= len(m.changes) {
+	changes := m.visibleChanges()
+	if len(changes) == 0 || m.selected < 0 || m.selected >= len(changes) {
 		return gitview.FileChange{}
 	}
-	return m.changes[m.selected]
+	return changes[m.selected]
+}
+
+func (m Model) visibleChanges() []gitview.FileChange {
+	if m.fileFilter == "" {
+		return m.changes
+	}
+	filter := strings.ToLower(m.fileFilter)
+	visible := make([]gitview.FileChange, 0, len(m.changes))
+	for _, change := range m.changes {
+		if strings.Contains(strings.ToLower(change.Path), filter) {
+			visible = append(visible, change)
+		}
+	}
+	return visible
+}
+
+func (m *Model) restoreSelectedFile(selected gitview.FileChange, fallbackIndex int) {
+	changes := m.visibleChanges()
+	if index := changeIndex(changes, selected); index >= 0 {
+		m.selected = index
+	} else {
+		m.selected = min(fallbackIndex, max(0, len(changes)-1))
+	}
+	m.refreshDiff()
 }
 
 func (m Model) SelectedWorktree() gitview.Worktree {
@@ -580,7 +633,8 @@ func (m Model) SelectedWorktree() gitview.Worktree {
 }
 
 func (m *Model) moveSelection(delta int) {
-	if len(m.changes) == 0 {
+	changes := m.visibleChanges()
+	if len(changes) == 0 {
 		return
 	}
 	m.focusedPane = paneFiles
@@ -588,8 +642,8 @@ func (m *Model) moveSelection(delta int) {
 	if m.selected < 0 {
 		m.selected = 0
 	}
-	if m.selected >= len(m.changes) {
-		m.selected = len(m.changes) - 1
+	if m.selected >= len(changes) {
+		m.selected = len(changes) - 1
 	}
 	m.refreshDiff()
 }
@@ -732,7 +786,7 @@ func (m Model) maxFileScrollX() int {
 		return 0
 	}
 	available := m.listContentWidthForPane(paneFiles)
-	return max(0, lipgloss.Width(renderFileLine(m.styles, m.Selected()))-available)
+	return max(0, lipgloss.Width(renderFileLine(m.styles, m.Selected(), m.fileFilter))-available)
 }
 
 func (m Model) listContentWidthForPane(_ focusedPane) int {
@@ -1236,6 +1290,48 @@ func (m *Model) applyThemeCursor() tea.Cmd {
 	return cmd
 }
 
+func (m Model) handleFileFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == '\r' || msg.Code == '\n' {
+		m.filteringFiles = false
+		return m, m.ensureSelectedDiffCmd()
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		selected := m.Selected()
+		m.fileFilter = ""
+		m.filteringFiles = false
+		m.restoreSelectedFile(selected, m.selected)
+		return m, m.ensureSelectedDiffCmd()
+	case "enter":
+		m.filteringFiles = false
+		return m, m.ensureSelectedDiffCmd()
+	case "backspace":
+		if m.fileFilter == "" {
+			return m, nil
+		}
+		selected := m.Selected()
+		runes := []rune(m.fileFilter)
+		m.fileFilter = string(runes[:len(runes)-1])
+		m.restoreSelectedFile(selected, m.selected)
+		return m, m.ensureSelectedDiffCmd()
+	default:
+		text := msg.Text
+		if text == "" {
+			text = msg.String()
+		}
+		runes := []rune(text)
+		if len(runes) != 1 || runes[0] < 0x20 || runes[0] == 0x7f {
+			return m, nil
+		}
+		selected := m.Selected()
+		m.fileFilter += text
+		m.restoreSelectedFile(selected, 0)
+		return m, m.ensureSelectedDiffCmd()
+	}
+}
+
 func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 	if m.pickingTheme {
 		overlay := m.renderThemePicker()
@@ -1274,8 +1370,9 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 		return false, nil
 	}
 	fileY := bodyY - worktreeHeight
+	changes := m.visibleChanges()
 	index := m.listOffset(max(4, contentHeight-worktreeHeight)) + fileY - 1
-	if index >= 0 && index < len(m.changes) {
+	if index >= 0 && index < len(changes) {
 		m.focusedPane = paneFiles
 		m.selected = index
 		m.refreshDiff()
@@ -1372,10 +1469,11 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int) {
 	if !m.confirmMerge && preserveMergeTargetPicker {
 		m.restoreMergeTargetPicker(mergeSource, mergeTargetPath)
 	}
-	if index := changeIndex(m.changes, selected); index >= 0 {
+	visibleChanges := m.visibleChanges()
+	if index := changeIndex(visibleChanges, selected); index >= 0 {
 		m.selected = index
 	} else {
-		m.selected = min(selectedIndex, max(0, len(m.changes)-1))
+		m.selected = min(selectedIndex, max(0, len(visibleChanges)-1))
 	}
 	if m.diffs == nil {
 		m.diffs = map[string]string{}
@@ -1502,13 +1600,19 @@ func (m *Model) resizeViewport() {
 
 func (m *Model) refreshDiff() {
 	m.resizeViewport()
-	if len(m.changes) == 0 {
+	changes := m.visibleChanges()
+	if len(changes) == 0 {
+		if len(m.changes) > 0 && m.fileFilter != "" {
+			m.setDiffContent("No matching files.")
+			return
+		}
 		m.setDiffContent("No changes in this worktree.")
 		return
 	}
+	m.selected = clamp(m.selected, 0, len(changes)-1)
 	diff := m.selectedDiff()
 	if diff == "" {
-		diff = fmt.Sprintf("No diff loaded for %s", m.changes[m.selected].Path)
+		diff = fmt.Sprintf("No diff loaded for %s", changes[m.selected].Path)
 	}
 	m.setDiffContent(diff)
 	m.viewport.GotoTop()
@@ -1589,33 +1693,39 @@ func (m Model) worktreeVisibleRows(height int) int {
 
 func (m Model) renderFiles(width, height int) string {
 	focused := m.focusedPane == paneFiles
-	lines := make([]string, 0, len(m.changes))
+	changes := m.visibleChanges()
+	lines := make([]string, 0, len(changes))
 	contentWidth := panelInnerWidth(width)
 	visibleRows := m.fileVisibleRows(height)
 	offset := m.listOffset(height)
-	end := min(len(m.changes), offset+visibleRows)
-	for i, change := range m.changes[offset:end] {
+	end := min(len(changes), offset+visibleRows)
+	for i, change := range changes[offset:end] {
 		index := offset + i
-		line := renderFileLine(m.styles, change)
 		if index == m.selected {
-			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.fileScrollX, contentWidth, true)
+			line := renderFileLineWithBackground(m.styles, change, m.fileFilter, m.styles.FileSelected.GetBackground())
+			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.fileScrollX, contentWidth, false)
+			lines = append(lines, line)
 		} else {
+			line := renderFileLine(m.styles, change, m.fileFilter)
 			line = renderScrollableListRow(m.listRowStyle(m.styles.FileItem), m.listFill("  "), line, m.fileScrollX, contentWidth, false)
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
 	}
 	if len(m.changes) == 0 {
 		lines = append(lines, m.listRowStyle(m.styles.Muted).Render("No changed files"))
-	} else if end < len(m.changes) {
-		lines = append(lines, m.listRowStyle(m.styles.Muted).Render(fmt.Sprintf("… %d more", len(m.changes)-end)))
+	} else if len(changes) == 0 {
+		lines = append(lines, m.listRowStyle(m.styles.Muted).Render("No matching files"))
+	} else if end < len(changes) {
+		lines = append(lines, m.listRowStyle(m.styles.Muted).Render(fmt.Sprintf("… %d more", len(changes)-end)))
 	}
 	innerHeight := panelInnerHeight(height)
-	title := fmt.Sprintf("[2]-%s %d files", iconFile, len(m.changes))
+	title := m.filesTitle(len(changes))
 	return m.renderPanel(width, height, focused, title, strings.Join(fillLines(lines, innerHeight), "\n"))
 }
 
 func (m Model) listOffset(height int) int {
-	if len(m.changes) == 0 {
+	changes := m.visibleChanges()
+	if len(changes) == 0 {
 		return 0
 	}
 	visibleRows := m.fileVisibleRows(height)
@@ -1623,7 +1733,7 @@ func (m Model) listOffset(height int) int {
 		return 0
 	}
 	offset := m.selected - visibleRows + 1
-	maxOffset := max(0, len(m.changes)-visibleRows)
+	maxOffset := max(0, len(changes)-visibleRows)
 	if offset > maxOffset {
 		return maxOffset
 	}
@@ -1631,11 +1741,20 @@ func (m Model) listOffset(height int) int {
 }
 
 func (m Model) fileVisibleRows(height int) int {
+	changes := m.visibleChanges()
 	visibleRows := max(1, panelInnerHeight(height))
-	if len(m.changes) > visibleRows {
+	if len(changes) > visibleRows {
 		return max(1, visibleRows-1)
 	}
 	return visibleRows
+}
+
+func (m Model) filesTitle(visibleCount int) string {
+	if m.fileFilter != "" {
+		return fmt.Sprintf("[2]-%s %d filtered [Esc]", iconFile, visibleCount)
+	}
+	title := fmt.Sprintf("[2]-%s %d files", iconFile, visibleCount)
+	return title
 }
 
 func (m Model) renderDiff(width, height int) string {
@@ -1807,6 +1926,21 @@ func (m Model) renderPRForm() string {
 	bodyTitle := "PR description    <tab> focus    <c-o> create"
 	body := m.renderPanel(width, bodyPanelHeight, m.prFormFocus == prFormBody, bodyTitle, bodyInput.View())
 	return lipgloss.JoinVertical(lipgloss.Left, header, title, body)
+}
+
+func (m Model) renderFileFilter() string {
+	width := min(max(32, m.width-20), 56)
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
+	title := m.styles.Title.
+		Background(panel.GetBackground()).
+		Width(contentWidth).
+		Render(iconFile + " Filters")
+	query := m.styles.Diff.
+		Background(panel.GetBackground()).
+		Width(contentWidth).
+		Render("/" + m.fileFilter)
+	return panel.Render(lipgloss.JoinVertical(lipgloss.Left, title, query))
 }
 
 func (m Model) renderThemePicker() string {
@@ -2096,8 +2230,16 @@ func listStyle(styles theme.Styles, style lipgloss.Style) lipgloss.Style {
 	return style.Background(styles.Panel.GetBackground())
 }
 
+func listStyleWithBackground(style lipgloss.Style, background color.Color) lipgloss.Style {
+	return style.Background(background)
+}
+
 func listFill(styles theme.Styles, text string) string {
-	return lipgloss.NewStyle().Background(styles.Panel.GetBackground()).Render(text)
+	return listFillWithBackground(styles.Panel.GetBackground(), text)
+}
+
+func listFillWithBackground(background color.Color, text string) string {
+	return lipgloss.NewStyle().Background(background).Render(text)
 }
 
 func worktreeLabel(worktree gitview.Worktree) string {
@@ -2136,24 +2278,46 @@ func renderScrollableListRow(style lipgloss.Style, prefix, content string, offse
 	return style.Width(width).Render(prefix + content)
 }
 
-func renderFileLine(styles theme.Styles, change gitview.FileChange) string {
+func renderFileLine(styles theme.Styles, change gitview.FileChange, filter string) string {
+	return renderFileLineWithBackground(styles, change, filter, styles.Panel.GetBackground())
+}
+
+func renderFileLineWithBackground(styles theme.Styles, change gitview.FileChange, filter string, background color.Color) string {
 	status := statusIcon(change.Status)
 	counts := ""
 	if change.Binary {
-		counts = listFill(styles, " ") +
-			listStyle(styles, styles.Muted).Render(iconBinary) +
-			listFill(styles, " ") +
-			listStyle(styles, styles.Muted).Render("binary")
+		counts = listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Muted, background).Render(iconBinary) +
+			listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Muted, background).Render("binary")
 	} else if change.Additions != 0 || change.Deletions != 0 {
-		counts = listFill(styles, " ") +
-			listStyle(styles, styles.Added).Render(fmt.Sprintf("+%d", change.Additions)) +
-			listFill(styles, " ") +
-			listStyle(styles, styles.Deleted).Render(fmt.Sprintf("-%d", change.Deletions))
+		counts = listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Added, background).Render(fmt.Sprintf("+%d", change.Additions)) +
+			listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Deleted, background).Render(fmt.Sprintf("-%d", change.Deletions))
 	}
-	return listStyle(styles, styles.Muted).Render(status) +
-		listFill(styles, " ") +
-		listStyle(styles, styles.FileItem).Render(change.Path) +
+	return listStyleWithBackground(styles.Muted, background).Render(status) +
+		listFillWithBackground(background, " ") +
+		renderFilteredPathWithBackground(styles, change.Path, filter, background) +
 		counts
+}
+
+func renderFilteredPath(styles theme.Styles, path, filter string) string {
+	return renderFilteredPathWithBackground(styles, path, filter, styles.Panel.GetBackground())
+}
+
+func renderFilteredPathWithBackground(styles theme.Styles, path, filter string, background color.Color) string {
+	if filter == "" {
+		return listStyleWithBackground(styles.FileItem, background).Render(path)
+	}
+	index := strings.Index(strings.ToLower(path), strings.ToLower(filter))
+	if index < 0 {
+		return listStyleWithBackground(styles.FileItem, background).Render(path)
+	}
+	end := index + len(filter)
+	base := listStyleWithBackground(styles.FileItem, background)
+	match := base.Bold(true)
+	return base.Render(path[:index]) + match.Render(path[index:end]) + base.Render(path[end:])
 }
 
 func statusIcon(status gitview.ChangeStatus) string {
