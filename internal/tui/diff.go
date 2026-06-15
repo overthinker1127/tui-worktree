@@ -11,8 +11,9 @@ import (
 
 func (m Model) renderDiffContent(diff string, width int) string {
 	lines := strings.Split(diff, "\n")
-	for i, line := range lines {
-		lines[i] = m.renderDiffSegment(m.diffLineStyle(line), "", line, width, width, shouldHighlightDiffSyntax(line))
+	numbered := numberedDiffLines(lines)
+	for i, line := range numbered {
+		lines[i] = m.renderDiffSegment(m.diffLineStyle(line.text), "", line.text, width, width, shouldHighlightDiffSyntaxLine(line))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -36,7 +37,7 @@ func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 	seen := 0
 	for _, line := range m.numberedDiffLines() {
 		style := m.diffLineStyle(line.text)
-		highlight := shouldHighlightDiffSyntax(line.text)
+		highlight := shouldHighlightDiffSyntaxLine(line)
 		segments := wrapDisplaySegments(line.text, textWidth)
 		for segmentIndex, segment := range segments {
 			if seen >= offset {
@@ -59,7 +60,7 @@ func (m Model) renderUnwrappedDiffViewport(width, textWidth, height int) string 
 	for i := offset; i < len(numbered) && len(lines) < height; i++ {
 		line := numbered[i]
 		segment := ansi.Cut(line.text, xOffset, xOffset+textWidth)
-		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth, shouldHighlightDiffSyntax(line.text)))
+		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth, shouldHighlightDiffSyntaxLine(line)))
 	}
 	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth, false)), "\n")
 }
@@ -73,6 +74,9 @@ func (m Model) renderDiffSegment(style lipgloss.Style, gutter, segment string, w
 }
 
 func (m Model) renderDiffText(style lipgloss.Style, segment string, width int, highlight bool) string {
+	if strings.HasPrefix(segment, "@@") {
+		return m.renderDiffHunkText(style, segment, width)
+	}
 	if !highlight || segment == "" || !containsSyntaxKeyword(segment) {
 		return style.Inline(true).Width(width).Render(segment)
 	}
@@ -82,6 +86,51 @@ func (m Model) renderDiffText(style lipgloss.Style, segment string, width int, h
 		text += style.Inline(true).Render(strings.Repeat(" ", padding))
 	}
 	return text
+}
+
+func (m Model) renderDiffHunkText(base lipgloss.Style, segment string, width int) string {
+	text := m.highlightDiffHunkRanges(segment, base)
+	padding := max(0, width-lipgloss.Width(text))
+	if padding > 0 {
+		text += base.Inline(true).Render(strings.Repeat(" ", padding))
+	}
+	return text
+}
+
+func (m Model) highlightDiffHunkRanges(segment string, base lipgloss.Style) string {
+	var rendered strings.Builder
+	last := 0
+	for index := 0; index < len(segment); index++ {
+		if segment[index] != '-' && segment[index] != '+' {
+			continue
+		}
+		if index+1 >= len(segment) || segment[index+1] < '0' || segment[index+1] > '9' {
+			continue
+		}
+		end := index + 2
+		for end < len(segment) {
+			ch := segment[end]
+			if ch != ',' && (ch < '0' || ch > '9') {
+				break
+			}
+			end++
+		}
+		rendered.WriteString(base.Inline(true).Render(segment[last:index]))
+		rangeStyle := m.styles.Deleted
+		if segment[index] == '+' {
+			rangeStyle = m.styles.Added
+		}
+		rendered.WriteString(rangeStyle.
+			Background(base.GetBackground()).
+			Inline(true).
+			Render(segment[index:end]))
+		last = end
+		index = end - 1
+	}
+	if last < len(segment) {
+		rendered.WriteString(base.Inline(true).Render(segment[last:]))
+	}
+	return rendered.String()
 }
 
 func containsSyntaxKeyword(segment string) bool {
@@ -176,43 +225,57 @@ type numberedDiffLine struct {
 	text string
 	old  int
 	new  int
+	path string
 }
 
 func (m Model) numberedDiffLines() []numberedDiffLine {
-	lines := make([]numberedDiffLine, 0, len(m.diffLines))
+	return numberedDiffLines(m.diffLines)
+}
+
+func numberedDiffLines(diffLines []string) []numberedDiffLine {
+	lines := make([]numberedDiffLine, 0, len(diffLines))
 	oldLine, newLine := 0, 0
 	seenHunkInFile := false
-	for _, line := range m.diffLines {
+	currentPath := ""
+	for _, line := range diffLines {
 		if strings.HasPrefix(line, "diff --git") {
+			currentPath = parseDiffGitPath(line)
 			seenHunkInFile = false
-			lines = append(lines, numberedDiffLine{text: line})
+			lines = append(lines, numberedDiffLine{text: line, path: currentPath})
 			continue
+		}
+		if path, ok := parseDiffFilePath(line, "+++ b/"); ok {
+			currentPath = path
+		} else if currentPath == "" {
+			if path, ok := parseDiffFilePath(line, "--- a/"); ok {
+				currentPath = path
+			}
 		}
 		if oldStart, newStart, ok := parseDiffHunkHeader(line); ok {
 			if seenHunkInFile {
-				lines = append(lines, numberedDiffLine{text: ""})
+				lines = append(lines, numberedDiffLine{text: "", path: currentPath})
 			}
 			oldLine = oldStart
 			newLine = newStart
 			seenHunkInFile = true
-			lines = append(lines, numberedDiffLine{text: line})
+			lines = append(lines, numberedDiffLine{text: line, path: currentPath})
 			continue
 		}
 		switch {
 		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			lines = append(lines, numberedDiffLine{text: line})
+			lines = append(lines, numberedDiffLine{text: line, path: currentPath})
 		case strings.HasPrefix(line, "+"):
-			lines = append(lines, numberedDiffLine{text: line, new: newLine})
+			lines = append(lines, numberedDiffLine{text: line, new: newLine, path: currentPath})
 			newLine++
 		case strings.HasPrefix(line, "-"):
-			lines = append(lines, numberedDiffLine{text: line, old: oldLine})
+			lines = append(lines, numberedDiffLine{text: line, old: oldLine, path: currentPath})
 			oldLine++
 		case oldLine > 0 || newLine > 0:
-			lines = append(lines, numberedDiffLine{text: line, old: oldLine, new: newLine})
+			lines = append(lines, numberedDiffLine{text: line, old: oldLine, new: newLine, path: currentPath})
 			oldLine++
 			newLine++
 		default:
-			lines = append(lines, numberedDiffLine{text: line})
+			lines = append(lines, numberedDiffLine{text: line, path: currentPath})
 		}
 	}
 	return lines
@@ -235,6 +298,34 @@ func parseDiffHunkHeader(line string) (int, int, bool) {
 		return 0, 0, false
 	}
 	return oldStart, newStart, true
+}
+
+func parseDiffGitPath(line string) string {
+	parts := strings.Fields(line)
+	if len(parts) < 4 {
+		return ""
+	}
+	if path := trimDiffPathPrefix(parts[3], "b/"); path != "" {
+		return path
+	}
+	return trimDiffPathPrefix(parts[2], "a/")
+}
+
+func parseDiffFilePath(line, prefix string) (string, bool) {
+	path, ok := strings.CutPrefix(line, prefix)
+	if !ok || path == "/dev/null" {
+		return "", false
+	}
+	return path, true
+}
+
+func trimDiffPathPrefix(path, prefix string) string {
+	path = strings.Trim(path, `"`)
+	path, _ = strings.CutPrefix(path, prefix)
+	if path == "/dev/null" {
+		return ""
+	}
+	return path
 }
 
 func parseHunkStart(value string, prefix byte) (int, bool) {
@@ -314,6 +405,74 @@ func shouldHighlightDiffSyntax(line string) bool {
 		!strings.HasPrefix(line, "---") &&
 		!strings.HasPrefix(line, "diff --git") &&
 		!strings.HasPrefix(line, "@@")
+}
+
+func shouldHighlightDiffSyntaxLine(line numberedDiffLine) bool {
+	return shouldHighlightDiffSyntax(line.text) && isCodeDiffPath(line.path)
+}
+
+func isCodeDiffPath(path string) bool {
+	extension := diffPathExtension(path)
+	if extension == "" {
+		return false
+	}
+	_, ok := codeDiffExtensions[extension]
+	return ok
+}
+
+func diffPathExtension(path string) string {
+	slash := strings.LastIndexAny(path, `/\`)
+	dot := strings.LastIndexByte(path, '.')
+	if dot <= slash || dot == len(path)-1 {
+		return ""
+	}
+	return strings.ToLower(path[dot:])
+}
+
+var codeDiffExtensions = map[string]struct{}{
+	".bash":  {},
+	".c":     {},
+	".cc":    {},
+	".clj":   {},
+	".cpp":   {},
+	".cs":    {},
+	".css":   {},
+	".dart":  {},
+	".ex":    {},
+	".exs":   {},
+	".fs":    {},
+	".fsx":   {},
+	".go":    {},
+	".h":     {},
+	".hpp":   {},
+	".hs":    {},
+	".html":  {},
+	".java":  {},
+	".js":    {},
+	".jsx":   {},
+	".kt":    {},
+	".kts":   {},
+	".lua":   {},
+	".m":     {},
+	".mm":    {},
+	".php":   {},
+	".pl":    {},
+	".pm":    {},
+	".ps1":   {},
+	".py":    {},
+	".r":     {},
+	".rb":    {},
+	".rs":    {},
+	".scala": {},
+	".scss":  {},
+	".sh":    {},
+	".sql":   {},
+	".swift": {},
+	".ts":    {},
+	".tsx":   {},
+	".vue":   {},
+	".zig":   {},
+	".zsh":   {},
 }
 
 func isSyntaxIdentRune(r rune) bool {

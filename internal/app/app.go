@@ -17,8 +17,9 @@ import (
 )
 
 type Options struct {
-	Dir   string
-	Theme string
+	Dir         string
+	Theme       string
+	Transparent bool
 }
 
 type Repository interface {
@@ -41,6 +42,7 @@ func ParseArgs(args []string) (Options, error) {
 	opts := Options{Dir: "."}
 	fs.StringVar(&opts.Dir, "repo", opts.Dir, "repository path")
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "theme preset: "+strings.Join(theme.Names(), ", "))
+	fs.BoolVar(&opts.Transparent, "transparent", opts.Transparent, "do not paint theme background colors")
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
 	}
@@ -52,7 +54,7 @@ func Usage(command string) string {
 		command = "tui-worktree"
 	}
 	return fmt.Sprintf(`Usage:
-  %s [--repo PATH] [--theme NAME]
+  %s [--repo PATH] [--theme NAME] [--transparent]
 
 Themes:
   %s
@@ -60,24 +62,25 @@ Themes:
 }
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
-	return loadModel(ctx, repo, themeName, 0, 0)
+	return loadModel(ctx, repo, themeName, false, 0, 0)
 }
 
-func loadModel(ctx context.Context, repo Repository, themeName string, width, height int) tui.Model {
+func loadModel(ctx context.Context, repo Repository, themeName string, transparent bool, width, height int) tui.Model {
 	preset, err := theme.Preset(themeName)
 	themeErr := err
 	if err != nil {
 		preset, _ = theme.Preset("tokyonight")
 	}
 
-	snapshot := loadSnapshot(ctx, repo, "")
+	snapshot := loadSnapshot(ctx, repo, "", true)
 	if snapshot.Error == nil {
 		snapshot.Error = themeErr
 	}
 	return tui.NewModel(tui.Config{
 		Context:          ctx,
 		ThemeName:        preset.Name,
-		Theme:            theme.NewStyles(preset),
+		Theme:            theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: transparent}),
+		Transparent:      transparent,
 		ThemeNames:       theme.Names(),
 		Width:            width,
 		Height:           height,
@@ -90,7 +93,7 @@ func loadModel(ctx context.Context, repo Repository, themeName string, width, he
 			return loadDiff(ctx, repositoryAt(repo, worktreePath), change)
 		},
 		Reload: func(ctx context.Context, selectedWorktreePath string) tui.Snapshot {
-			return loadSnapshot(ctx, repo, selectedWorktreePath)
+			return loadSnapshot(ctx, repo, selectedWorktreePath, false)
 		},
 		DeleteWorktree: func(ctx context.Context, worktree gitview.Worktree) error {
 			if deleteRepo, ok := repo.(DeleteWorktreeRepository); ok {
@@ -99,12 +102,19 @@ func loadModel(ctx context.Context, repo Repository, themeName string, width, he
 			return fmt.Errorf("delete worktree is not supported")
 		},
 		SaveTheme: func(name string) error {
-			return SaveConfig(UserConfig{Theme: name})
+			cfg, _ := LoadConfig()
+			cfg.Theme = name
+			return SaveConfig(cfg)
+		},
+		SaveTransparent: func(transparent bool) error {
+			cfg, _ := LoadConfig()
+			cfg.Transparent = transparent
+			return SaveConfig(cfg)
 		},
 	})
 }
 
-func loadSnapshot(ctx context.Context, repo Repository, selectedWorktreePath string) tui.Snapshot {
+func loadSnapshot(ctx context.Context, repo Repository, selectedWorktreePath string, includeDiff bool) tui.Snapshot {
 	worktrees, err := loadWorktrees(ctx, repo)
 	if err != nil {
 		return tui.Snapshot{Error: err}
@@ -128,8 +138,9 @@ func loadSnapshot(ctx context.Context, repo Repository, selectedWorktreePath str
 	}
 
 	changes := states[selected].Changes
-	diffs := make(map[string]string, min(1, len(changes)))
-	if len(changes) > 0 {
+	var diffs map[string]string
+	if includeDiff && len(changes) > 0 {
+		diffs = make(map[string]string, 1)
 		key := states[selected].Worktree.Path + "\x00" + changes[0].Path
 		diffs[key] = loadDiff(ctx, repositoryAt(repo, states[selected].Worktree.Path), changes[0])
 	}
@@ -184,7 +195,7 @@ func min(a, b int) int {
 func Run(ctx context.Context, opts Options) error {
 	repo := gitview.Repository{Dir: opts.Dir}
 	width, height := terminalSize()
-	model := loadModel(ctx, repo, ResolveTheme(opts), width, height)
+	model := loadModel(ctx, repo, ResolveTheme(opts), ResolveTransparent(opts), width, height)
 	options := []tea.ProgramOption{}
 	if width > 0 && height > 0 {
 		options = append(options, tea.WithWindowSize(width, height))

@@ -6,11 +6,12 @@ import (
 )
 
 type Theme struct {
-	Name              string
-	Background        string
-	Foreground        string
-	Muted             string
-	Accent            string
+	Name       string
+	Background string
+	Foreground string
+	Muted      string
+	Accent     string
+	// Keyword is the syntax keyword color from the theme palette, not a UI accent.
 	Keyword           string
 	Border            string
 	Selection         string
@@ -647,7 +648,7 @@ func zenburn() Theme {
 		Foreground:    "#dcdccc",
 		Muted:         "#7f9f7f",
 		Accent:        "#8cd0d3",
-		Keyword:       "#dc8cc3",
+		Keyword:       "#f0dfaf",
 		Border:        "#5f5f5f",
 		Selection:     "#4f4f4f",
 		Added:         "#7f9f7f",

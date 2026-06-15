@@ -1,6 +1,11 @@
 package theme
 
-import "testing"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestPresetReturnsBuiltInThemes(t *testing.T) {
 	for _, name := range []string{
@@ -65,6 +70,32 @@ func TestPresetRejectsUnknownTheme(t *testing.T) {
 	}
 }
 
+func TestPresetKeywordColorsUseSyntaxThemeColors(t *testing.T) {
+	tests := map[string]string{
+		"tokyonight":       "#bb9af7",
+		"catppuccin-mocha": "#cba6f7",
+		"dracula":          "#ff79c6",
+		"github-dark":      "#ff7b72",
+		"github-light":     "#cf222e",
+		"monokai":          "#f92672",
+		"vscode-dark":      "#c586c0",
+		"zenburn":          "#f0dfaf",
+	}
+
+	for name, want := range tests {
+		got, err := Preset(name)
+		if err != nil {
+			t.Fatalf("Preset(%q) error = %v", name, err)
+		}
+		if got.Keyword != want {
+			t.Fatalf("Preset(%q).Keyword = %q, want syntax keyword color %q", name, got.Keyword, want)
+		}
+		if got.Keyword == got.Accent {
+			t.Fatalf("Preset(%q).Keyword should be syntax-specific, not accent fallback", name)
+		}
+	}
+}
+
 func TestNamesIncludesOnlyNamedThemes(t *testing.T) {
 	names := Names()
 	for _, forbidden := range []string{"dark", "light"} {
@@ -120,6 +151,9 @@ func TestDiffKeywordUsesKeywordColorWhenConfigured(t *testing.T) {
 	if containsEscape(rendered, "38;2;17;17;17") {
 		t.Fatalf("DiffKeyword = %q, should not use accent when keyword is configured", rendered)
 	}
+	if containsEscape(rendered, "\x1b[1") || containsEscape(rendered, ";1;") {
+		t.Fatalf("DiffKeyword = %q, should not render bold", rendered)
+	}
 }
 
 func TestDiffKeywordFallsBackToAccentColor(t *testing.T) {
@@ -166,6 +200,52 @@ func TestDiffStylesUseLineBackgrounds(t *testing.T) {
 			t.Fatalf("%s diff style = %q, want theme foreground escape", name, rendered)
 		}
 	}
+}
+
+func TestTransparentStylesDoNotPaintBackgrounds(t *testing.T) {
+	tm, err := Preset("tokyonight")
+	if err != nil {
+		t.Fatalf("Preset(\"tokyonight\") error = %v", err)
+	}
+
+	styles := NewStylesWithOptions(tm, StyleOptions{Transparent: true})
+	rendered := strings.Join([]string{
+		styles.App.Render("app"),
+		styles.Panel.Render("panel"),
+		styles.FileSelected.Render("selected"),
+		styles.Footer.Render("footer"),
+		styles.Diff.Render("diff"),
+		styles.DiffHunk.Render("@@ -1 +1 @@"),
+		styles.DiffKeyword.Render("func"),
+		styles.DiffAddition.Render("+added"),
+		styles.DiffDeletion.Render("-deleted"),
+		styles.DiffFileHeader.Render("diff --git"),
+	}, "\n")
+
+	if containsEscape(rendered, "48;2;") {
+		t.Fatalf("transparent styles should not include truecolor background escapes: %q", rendered)
+	}
+	for _, token := range []string{
+		styleForegroundEscape(tm.Added),
+		styleForegroundEscape(tm.Deleted),
+	} {
+		if !containsEscape(rendered, token) {
+			t.Fatalf("transparent diff styles should keep semantic foreground %q in %q", token, rendered)
+		}
+	}
+}
+
+func styleForegroundEscape(hex string) string {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return ""
+	}
+	return fmt.Sprintf("38;2;%d;%d;%d", parseHexByte(hex[0:2]), parseHexByte(hex[2:4]), parseHexByte(hex[4:6]))
+}
+
+func parseHexByte(value string) int {
+	parsed, _ := strconv.ParseUint(value, 16, 8)
+	return int(parsed)
 }
 
 func contains(items []string, want string) bool {

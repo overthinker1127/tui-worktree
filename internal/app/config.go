@@ -10,7 +10,8 @@ import (
 const configDirName = "tui-worktree"
 
 type UserConfig struct {
-	Theme string `json:"theme,omitempty"`
+	Theme       string `json:"theme,omitempty"`
+	Transparent bool   `json:"transparent,omitempty"`
 }
 
 func ConfigPath() (string, error) {
@@ -65,4 +66,15 @@ func ResolveTheme(opts Options) string {
 		return cfg.Theme
 	}
 	return "tokyonight"
+}
+
+func ResolveTransparent(opts Options) bool {
+	if opts.Transparent {
+		return true
+	}
+	cfg, err := LoadConfig()
+	if err == nil && cfg.Transparent {
+		return true
+	}
+	return false
 }

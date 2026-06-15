@@ -47,11 +47,11 @@ func (f *fakeRepo) Worktrees(context.Context) ([]gitview.Worktree, error) {
 }
 
 func TestParseArgs(t *testing.T) {
-	got, err := ParseArgs([]string{"--theme", "kanagawa", "--repo", "/tmp/repo"})
+	got, err := ParseArgs([]string{"--theme", "kanagawa", "--repo", "/tmp/repo", "--transparent"})
 	if err != nil {
 		t.Fatalf("ParseArgs() error = %v", err)
 	}
-	if got.Theme != "kanagawa" || got.Dir != "/tmp/repo" {
+	if got.Theme != "kanagawa" || got.Dir != "/tmp/repo" || !got.Transparent {
 		t.Fatalf("ParseArgs() = %#v", got)
 	}
 }
@@ -70,7 +70,7 @@ func TestSaveLoadConfig(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
-	if err := SaveConfig(UserConfig{Theme: "kanagawa"}); err != nil {
+	if err := SaveConfig(UserConfig{Theme: "kanagawa", Transparent: true}); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 	got, err := LoadConfig()
@@ -79,6 +79,9 @@ func TestSaveLoadConfig(t *testing.T) {
 	}
 	if got.Theme != "kanagawa" {
 		t.Fatalf("Theme = %q, want kanagawa", got.Theme)
+	}
+	if !got.Transparent {
+		t.Fatal("Transparent = false, want true")
 	}
 
 	path := filepath.Join(configHome, "tui-worktree", "config.json")
@@ -101,9 +104,25 @@ func TestResolveThemeUsesConfigUnlessFlagProvided(t *testing.T) {
 	}
 }
 
+func TestResolveTransparentUsesConfigOrFlag(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if got := ResolveTransparent(Options{}); got {
+		t.Fatal("ResolveTransparent(empty) = true, want false")
+	}
+	if err := SaveConfig(UserConfig{Transparent: true}); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	if got := ResolveTransparent(Options{}); !got {
+		t.Fatal("ResolveTransparent(config) = false, want true")
+	}
+	if got := ResolveTransparent(Options{Transparent: true}); !got {
+		t.Fatal("ResolveTransparent(flag) = false, want true")
+	}
+}
+
 func TestUsageMentionsThemes(t *testing.T) {
 	usage := Usage("tui-worktree")
-	for _, want := range []string{"tokyonight", "kanagawa", "--theme"} {
+	for _, want := range []string{"tokyonight", "kanagawa", "--theme", "--transparent"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("Usage() missing %q in %q", want, usage)
 		}
@@ -142,6 +161,29 @@ func TestLoadModelLoadsOnlySelectedDiffInitially(t *testing.T) {
 
 	if len(repo.calls) != 1 || repo.calls[0] != "a.go" {
 		t.Fatalf("Diff calls = %#v, want only selected file", repo.calls)
+	}
+}
+
+func TestReloadSnapshotDoesNotLoadDiff(t *testing.T) {
+	repo := &fakeRepo{
+		changes: []gitview.FileChange{
+			{Path: "a.go", Status: gitview.Modified, Additions: 1},
+		},
+		diffs: map[string]string{
+			"a.go": "diff --git a/a.go b/a.go\n+a",
+		},
+	}
+
+	snapshot := loadSnapshot(context.Background(), repo, "", false)
+
+	if len(repo.calls) != 0 {
+		t.Fatalf("Diff calls = %#v, want none for reload snapshot", repo.calls)
+	}
+	if snapshot.Diffs != nil {
+		t.Fatalf("reload snapshot Diffs = %#v, want nil", snapshot.Diffs)
+	}
+	if len(snapshot.Changes) != 1 || snapshot.Changes[0].Path != "a.go" {
+		t.Fatalf("reload snapshot Changes = %#v, want a.go", snapshot.Changes)
 	}
 }
 

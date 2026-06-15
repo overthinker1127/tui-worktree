@@ -16,6 +16,7 @@ The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the
 - Merge a selected worktree branch into another worktree branch
 - Delete non-protected worktrees and branches after confirmation
 - Switch and persist themes from inside the TUI
+- Use transparent theme backgrounds when your terminal already provides the desired background
 - Protect current/default worktrees and protected branch names from destructive actions
 
 ## Installation
@@ -86,6 +87,14 @@ Use a specific theme for one run:
 tui-worktree --theme kanagawa
 ```
 
+Use your terminal background instead of theme-painted backgrounds:
+
+```bash
+tui-worktree --transparent
+```
+
+You can also press `t` in the TUI and choose `Transparent background` at the top of the theme list.
+
 Show help:
 
 ```bash
@@ -118,7 +127,7 @@ The app stores user configuration at:
 ~/.config/tui-worktree/config.json
 ```
 
-Theme changes made from the TUI are saved there automatically. The `--theme` flag overrides the saved theme for the current run only.
+Theme and transparent background changes made from the TUI are saved there automatically. The `--theme` flag overrides the saved theme for the current run only. The `--transparent` flag keeps theme foreground colors but lets your terminal background show through.
 
 Editor integration uses `$EDITOR`. Known editor families receive line hints for the first changed line:
 
