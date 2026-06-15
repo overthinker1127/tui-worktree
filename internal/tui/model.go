@@ -1939,7 +1939,7 @@ func (m Model) renderFileFilter() string {
 	query := m.styles.Diff.
 		Background(panel.GetBackground()).
 		Width(contentWidth).
-		Render("/" + m.fileFilter)
+		Render(m.fileFilter)
 	return panel.Render(lipgloss.JoinVertical(lipgloss.Left, title, query))
 }
 
