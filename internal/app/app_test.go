@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,6 +88,7 @@ func TestParseArgsVersion(t *testing.T) {
 
 func TestSaveLoadConfig(t *testing.T) {
 	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
 	if err := SaveConfig(UserConfig{Theme: "kanagawa", Transparent: true}); err != nil {
@@ -105,7 +105,10 @@ func TestSaveLoadConfig(t *testing.T) {
 		t.Fatal("Transparent = false, want true")
 	}
 
-	path := filepath.Join(configHome, "tui-worktree", "config.json")
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath() error = %v", err)
+	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("config file missing at %s: %v", path, err)
 	}
