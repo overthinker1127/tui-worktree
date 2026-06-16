@@ -7,7 +7,7 @@
 ## Demo
 
 <a href="assets/tui-worktree.mp4">
-  <img src="assets/tui-worktree-preview.apng" alt="tui-worktree demo preview" width="840">
+  <img src="assets/tui-worktree-preview.apng" alt="tui-worktree demo preview" width="760">
 </a>
 
 [Watch the full demo video](assets/tui-worktree.mp4)
