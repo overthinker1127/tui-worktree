@@ -4,6 +4,10 @@
   <img src="assets/logo.png" alt="tui-worktree logo" width="420">
 </p>
 
+<p align="center">
+  <strong>Review changes across Git worktrees in your terminal.</strong>
+</p>
+
 ## Demo
 
 <a href="assets/tui-worktree.mp4">
