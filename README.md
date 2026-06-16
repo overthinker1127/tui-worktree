@@ -1,8 +1,12 @@
 # tui-worktree
 
 <p align="center">
-  <img src="logo.png" alt="tui-worktree logo" width="720">
+  <img src="assets/logo.png" alt="tui-worktree logo" width="420">
 </p>
+
+## Demo
+
+[Watch the demo](assets/tui-worktree.mp4)
 
 ## Project overview
 
@@ -19,6 +23,8 @@ The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the
 ## Why this exists
 
 AI coding is most useful when the user can review the result comfortably. If the review step is noisy, slow, or hard to follow, it becomes difficult to trust the work even when the code might be good.
+
+This project was also born from a practical gap: before a PR or MR exists, worktree changes are often awkward to inspect. The code is already there, but the review surface is still split across shell commands and editor tabs.
 
 This app is meant to be the comfortable viewing layer between AI work and your next decision. It makes it easier to scan, compare, and inspect changes before you hand them off to merge, continue editing, or throw them away.
 
