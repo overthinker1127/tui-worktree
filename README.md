@@ -8,9 +8,11 @@
 
 `tui-worktree` helps you review AI-generated work without losing your place.
 
-When you work with tools like Superpower, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
+When you work with tools like **Superpower**, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
 
 `tui-worktree` puts that review in one place. You can move through worktrees, see changed files, read the diff, filter by path, and open the exact file you care about without breaking flow.
+
+It is built to make **Superpower-driven coding sessions** easier to trust: keep generated work isolated in worktrees, inspect every change from one focused TUI, then decide whether to merge, continue, or delete it.
 
 The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the TUI.
 
