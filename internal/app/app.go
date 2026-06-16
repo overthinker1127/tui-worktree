@@ -31,6 +31,10 @@ type WorktreeRepository interface {
 	Worktrees(context.Context) ([]gitview.Worktree, error)
 }
 
+type RootRepository interface {
+	Root(context.Context) (string, error)
+}
+
 type DeleteWorktreeRepository interface {
 	DeleteWorktree(context.Context, gitview.Worktree) error
 }
@@ -192,8 +196,21 @@ func min(a, b int) int {
 	return b
 }
 
+func ensureRepository(ctx context.Context, repo RootRepository, dir string) error {
+	if _, err := repo.Root(ctx); err != nil {
+		if dir == "" {
+			dir = "."
+		}
+		return fmt.Errorf("not a git repository: %s", dir)
+	}
+	return nil
+}
+
 func Run(ctx context.Context, opts Options) error {
 	repo := gitview.Repository{Dir: opts.Dir}
+	if err := ensureRepository(ctx, repo, opts.Dir); err != nil {
+		return err
+	}
 	width, height := terminalSize()
 	model := loadModel(ctx, repo, ResolveTheme(opts), ResolveTransparent(opts), width, height)
 	options := []tea.ProgramOption{}

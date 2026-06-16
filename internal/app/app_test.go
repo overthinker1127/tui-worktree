@@ -46,6 +46,17 @@ func (f *fakeRepo) Worktrees(context.Context) ([]gitview.Worktree, error) {
 	return []gitview.Worktree{{Path: ".", Branch: "current", Current: true}}, nil
 }
 
+type fakeRootRepo struct {
+	err error
+}
+
+func (f fakeRootRepo) Root(context.Context) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return "/repo", nil
+}
+
 func TestParseArgs(t *testing.T) {
 	got, err := ParseArgs([]string{"--theme", "kanagawa", "--repo", "/tmp/repo", "--transparent"})
 	if err != nil {
@@ -129,6 +140,22 @@ func TestUsageMentionsThemes(t *testing.T) {
 	}
 	if !strings.Contains(usage, "tui-worktree") {
 		t.Fatalf("Usage() missing command name: %q", usage)
+	}
+}
+
+func TestEnsureRepositoryReturnsCliMessageWhenRepositoryMissing(t *testing.T) {
+	err := ensureRepository(context.Background(), fakeRootRepo{err: errors.New("fatal: not a git repository")}, "/tmp/no-repo")
+	if err == nil {
+		t.Fatal("ensureRepository() error = nil, want missing repository error")
+	}
+	if got, want := err.Error(), "not a git repository: /tmp/no-repo"; got != want {
+		t.Fatalf("ensureRepository() error = %q, want %q", got, want)
+	}
+}
+
+func TestEnsureRepositoryAcceptsRepository(t *testing.T) {
+	if err := ensureRepository(context.Background(), fakeRootRepo{}, "/repo"); err != nil {
+		t.Fatalf("ensureRepository() error = %v", err)
 	}
 }
 
