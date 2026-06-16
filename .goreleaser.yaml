@@ -24,7 +24,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -buildid=
+      - -s -w -buildid= -X github.com/overthinker1127/tui-worktree/internal/app.BuildVersion={{ .Version }}
 
   - id: tui-worktree-windows
     main: ./cmd/tui-worktree
@@ -38,7 +38,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -buildid=
+      - -s -w -buildid= -X github.com/overthinker1127/tui-worktree/internal/app.BuildVersion={{ .Version }}
 
 archives:
   - id: tui-worktree

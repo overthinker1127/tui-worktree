@@ -20,6 +20,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	if opts.Version {
+		fmt.Print(app.Version("tui-worktree"))
+		return
+	}
 	if err := app.Run(context.Background(), opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

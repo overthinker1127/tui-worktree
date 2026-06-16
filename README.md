@@ -127,6 +127,12 @@ Show help:
 tui-worktree --help
 ```
 
+Show version:
+
+```bash
+tui-worktree --version
+```
+
 Common key bindings:
 
 - `1` / `2` / `3`: focus worktrees, files, or diff panel

@@ -20,7 +20,10 @@ type Options struct {
 	Dir         string
 	Theme       string
 	Transparent bool
+	Version     bool
 }
+
+var BuildVersion = "dev"
 
 type Repository interface {
 	Changes(context.Context) ([]gitview.FileChange, error)
@@ -47,6 +50,7 @@ func ParseArgs(args []string) (Options, error) {
 	fs.StringVar(&opts.Dir, "repo", opts.Dir, "repository path")
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "theme preset: "+strings.Join(theme.Names(), ", "))
 	fs.BoolVar(&opts.Transparent, "transparent", opts.Transparent, "do not paint theme background colors")
+	fs.BoolVar(&opts.Version, "version", opts.Version, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
 	}
@@ -58,11 +62,18 @@ func Usage(command string) string {
 		command = "tui-worktree"
 	}
 	return fmt.Sprintf(`Usage:
-  %s [--repo PATH] [--theme NAME] [--transparent]
+  %s [--repo PATH] [--theme NAME] [--transparent] [--version]
 
 Themes:
   %s
 `, command, strings.Join(theme.Names(), ", "))
+}
+
+func Version(command string) string {
+	if command == "" {
+		command = "tui-worktree"
+	}
+	return fmt.Sprintf("%s %s\n", command, BuildVersion)
 }
 
 func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {

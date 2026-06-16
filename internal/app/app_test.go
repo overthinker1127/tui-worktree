@@ -77,6 +77,16 @@ func TestParseArgsLeavesThemeEmptyWhenNotProvided(t *testing.T) {
 	}
 }
 
+func TestParseArgsVersion(t *testing.T) {
+	got, err := ParseArgs([]string{"--version"})
+	if err != nil {
+		t.Fatalf("ParseArgs() error = %v", err)
+	}
+	if !got.Version {
+		t.Fatal("Version = false, want true")
+	}
+}
+
 func TestSaveLoadConfig(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -133,13 +143,25 @@ func TestResolveTransparentUsesConfigOrFlag(t *testing.T) {
 
 func TestUsageMentionsThemes(t *testing.T) {
 	usage := Usage("tui-worktree")
-	for _, want := range []string{"tokyonight", "kanagawa", "--theme", "--transparent"} {
+	for _, want := range []string{"tokyonight", "kanagawa", "--theme", "--transparent", "--version"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("Usage() missing %q in %q", want, usage)
 		}
 	}
 	if !strings.Contains(usage, "tui-worktree") {
 		t.Fatalf("Usage() missing command name: %q", usage)
+	}
+}
+
+func TestVersionString(t *testing.T) {
+	old := BuildVersion
+	BuildVersion = "1.2.3"
+	t.Cleanup(func() {
+		BuildVersion = old
+	})
+
+	if got, want := Version("tui-worktree"), "tui-worktree 1.2.3\n"; got != want {
+		t.Fatalf("Version() = %q, want %q", got, want)
 	}
 }
 
