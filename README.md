@@ -1,5 +1,9 @@
 # tui-worktree
 
+<p align="center">
+  <img src="logo.png" alt="tui-worktree logo" width="720">
+</p>
+
 ## Project overview
 
 `tui-worktree` helps you review AI-generated work without losing your place.
