@@ -866,6 +866,37 @@ func TestToastRendersAsVariantOverlay(t *testing.T) {
 	}
 }
 
+func TestToastFrameUsesPanelColors(t *testing.T) {
+	tm, err := theme.Preset("github-light")
+	if err != nil {
+		t.Fatalf("Preset() error = %v", err)
+	}
+	model := NewModel(Config{
+		ThemeName: "github-light",
+		Theme:     theme.NewStyles(tm),
+		Width:     100,
+		Height:    24,
+	})
+	model.showToast("line numbers off")
+	toast := model.renderToastBox()
+	firstLine, _, _ := strings.Cut(toast, "\n")
+	panelBorder := styleForegroundToken(model.styles.Panel)
+	panelBackground := styleBackgroundToken(model.styles.Panel)
+	infoAccent := foregroundOnlyToken(model.styles.DiffHunk)
+
+	for _, token := range []string{panelBorder, panelBackground} {
+		if token == "" || !strings.Contains(firstLine, token) {
+			t.Fatalf("toast frame should use panel token %q in %q", token, firstLine)
+		}
+	}
+	if infoAccent != "" && strings.Contains(firstLine, infoAccent) {
+		t.Fatalf("toast frame should not use info accent token %q in %q", infoAccent, firstLine)
+	}
+	if !strings.Contains(toast, infoAccent) {
+		t.Fatalf("toast title should keep info accent token %q in %q", infoAccent, toast)
+	}
+}
+
 func TestToastExpires(t *testing.T) {
 	model := testModel(t)
 

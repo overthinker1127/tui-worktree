@@ -2332,7 +2332,8 @@ func (m Model) renderToast(background string) string {
 func (m Model) renderToastBox() string {
 	width := max(8, min(44, m.width-6))
 	title, accent := m.toastTitleAndStyle()
-	panelBackground := m.styles.Panel.GetBackground()
+	panel := m.overlayPanelStyle()
+	panelBackground := panel.GetBackground()
 	titleLine := accent.
 		Bold(true).
 		Background(panelBackground).
@@ -2342,10 +2343,7 @@ func (m Model) renderToastBox() string {
 		Background(panelBackground).
 		Width(width).
 		Render(ansi.Truncate(m.toast.Message, width, "…"))
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent.GetForeground()).
-		Background(panelBackground).
+	return panel.
 		Padding(0, 1).
 		Render(strings.Join([]string{titleLine, messageLine}, "\n"))
 }
