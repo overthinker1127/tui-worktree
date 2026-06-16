@@ -63,7 +63,7 @@ brew install overthinker1127/tap/tui-worktree
 Install Linux packages from a GitHub release by downloading the package for your version and architecture first:
 
 ```bash
-version=v0.0.10
+version=v1.0.0
 curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree_${version#v}_amd64.deb"
 sudo apt install "./tui-worktree_${version#v}_amd64.deb"
 ```
@@ -71,7 +71,7 @@ sudo apt install "./tui-worktree_${version#v}_amd64.deb"
 For RPM or Alpine packages, download the matching asset from the same release page:
 
 ```bash
-version=v0.0.10
+version=v1.0.0
 curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree-${version#v}-1.x86_64.rpm"
 sudo rpm -i "./tui-worktree-${version#v}-1.x86_64.rpm"
 
