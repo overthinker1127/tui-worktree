@@ -411,7 +411,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 
 	footer := model.footerText()
 	plain := ansi.Strip(footer)
-	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "/ filter", "e edit", "t themes", "q quit"} {
+	for _, want := range []string{"1/2/3 panels", "tab worktree", "hjkl move", "0/$ edge", "/ filter", "e edit", "t themes", "q quit"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("footer missing %q in %q", want, footer)
 		}
@@ -429,7 +429,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
 	}
-	for _, want := range []string{"1/2/3", "tab", "hjkl", "/", "e", "t", "q"} {
+	for _, want := range []string{"1/2/3", "tab", "hjkl", "0/$", "/", "e", "t", "q"} {
 		if !strings.Contains(footer, "\x1b[1;") || !strings.Contains(plain, want) {
 			t.Fatalf("footer key %q should be bold in %q", want, footer)
 		}
@@ -744,18 +744,23 @@ func TestSelectedRowsRenderVisiblePointer(t *testing.T) {
 
 func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
 	model := testModel(t)
-	model.width = 54
+	model.width = 120
 	model.changes = []gitview.FileChange{{
-		Path:   "internal/some/really/long/path/that/needs/scrolling/model.go",
-		Status: gitview.Modified,
+		Path:      "internal/some/really/long/path/that/needs/scrolling/model.go",
+		Status:    gitview.Modified,
+		Additions: 12,
+		Deletions: 3,
 	}}
 	model.diffs = map[string]string{}
 	model.focusedPane = paneFiles
 	model.refreshDiff()
 
 	initial := ansi.Strip(model.View().Content)
-	if !strings.Contains(initial, "internal/some") {
-		t.Fatalf("initial view should show start of long path: %q", initial)
+	if !strings.Contains(initial, "internal/") || !strings.Contains(initial, "scrolling/model.go") || !strings.Contains(initial, "…") {
+		t.Fatalf("initial view should middle-ellipsize long path with tail: %q", initial)
+	}
+	if !strings.Contains(initial, "+12 -3") {
+		t.Fatalf("initial view should keep line stats visible: %q", initial)
 	}
 
 	for range 20 {
@@ -763,11 +768,34 @@ func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
 		model = next.(Model)
 	}
 	scrolled := ansi.Strip(model.View().Content)
-	if !strings.Contains(scrolled, iconSelected+" ly/long/path/that/") {
+	if !strings.Contains(scrolled, iconSelected+" ly/long/path/that/needs/scrolling") {
 		t.Fatalf("horizontal scroll did not move file row: %q", scrolled)
+	}
+	if strings.Contains(scrolled, "…") {
+		t.Fatalf("scrolled file row should show a continuous slice, not middle ellipsis: %q", scrolled)
 	}
 	if model.fileScrollX != 20 {
 		t.Fatalf("fileScrollX = %d, want 20", model.fileScrollX)
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "0", Code: '0'}))
+	model = next.(Model)
+	reset := ansi.Strip(model.View().Content)
+	if model.fileScrollX != 0 {
+		t.Fatalf("0 should reset fileScrollX, got %d", model.fileScrollX)
+	}
+	if !strings.Contains(reset, "…") || !strings.Contains(reset, "scrolling/model.go") {
+		t.Fatalf("0 should restore middle-ellipsized path: %q", reset)
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "$", Code: '$'}))
+	model = next.(Model)
+	end := ansi.Strip(model.View().Content)
+	if model.fileScrollX != model.maxFileScrollX() {
+		t.Fatalf("$ fileScrollX = %d, want %d", model.fileScrollX, model.maxFileScrollX())
+	}
+	if !strings.Contains(end, "needs/scrolling/model.go +12 -3") {
+		t.Fatalf("$ should scroll file row to path end: %q", end)
 	}
 }
 

@@ -470,6 +470,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		break
+	case "0":
+		if m.scrollFocusedListToStart() {
+			return m, nil
+		}
+		break
+	case "$":
+		if m.scrollFocusedListToEnd() {
+			return m, nil
+		}
+		break
 	case "g", "home":
 		if m.focusedPane == paneDiff {
 			m.viewport.GotoTop()
@@ -555,6 +565,7 @@ func (m Model) footerText() string {
 	default:
 		segments = append(segments,
 			m.footerHint(iconFile, "hjkl", "move"),
+			m.footerHint(iconFile, "0/$", "edge"),
 			m.footerHint(iconFile, "/", "filter"),
 			m.footerHint(iconEdit, "e", "edit"),
 		)
@@ -786,6 +797,32 @@ func (m *Model) scrollFocusedList(delta int) bool {
 		return true
 	case paneFiles:
 		m.fileScrollX = clamp(m.fileScrollX+delta, 0, m.maxFileScrollX())
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) scrollFocusedListToStart() bool {
+	switch m.focusedPane {
+	case paneWorktrees:
+		m.worktreeScrollX = 0
+		return true
+	case paneFiles:
+		m.fileScrollX = 0
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) scrollFocusedListToEnd() bool {
+	switch m.focusedPane {
+	case paneWorktrees:
+		m.worktreeScrollX = m.maxWorktreeScrollX()
+		return true
+	case paneFiles:
+		m.fileScrollX = m.maxFileScrollX()
 		return true
 	default:
 		return false
@@ -1854,11 +1891,11 @@ func (m Model) renderFiles(width, height int) string {
 	for i, change := range changes[offset:end] {
 		index := offset + i
 		if index == m.selected {
-			line := renderFileLineWithBackground(m.styles, change, m.fileFilter, m.styles.FileSelected.GetBackground())
+			line := m.renderFileListLine(change, m.styles.FileSelected.GetBackground(), contentWidth)
 			line = renderScrollableListRow(m.styles.FileSelected, iconSelected+" ", line, m.fileScrollX, contentWidth, false)
 			lines = append(lines, line)
 		} else {
-			line := renderFileLine(m.styles, change, m.fileFilter)
+			line := m.renderFileListLine(change, m.styles.Panel.GetBackground(), contentWidth)
 			line = renderScrollableListRow(m.listRowStyle(m.styles.FileItem), m.listFill("  "), line, m.fileScrollX, contentWidth, false)
 			lines = append(lines, line)
 		}
@@ -1873,6 +1910,15 @@ func (m Model) renderFiles(width, height int) string {
 	innerHeight := panelInnerHeight(height)
 	title := m.filesTitle(len(changes))
 	return m.renderPanel(width, height, focused, title, strings.Join(fillLines(lines, innerHeight), "\n"))
+}
+
+func (m Model) renderFileListLine(change gitview.FileChange, background color.Color, rowWidth int) string {
+	if m.fileScrollX > 0 || m.fileFilter != "" {
+		return renderFileLineWithBackground(m.styles, change, m.fileFilter, background)
+	}
+	prefixWidth := lipgloss.Width(iconSelected + " ")
+	contentWidth := max(1, rowWidth-prefixWidth)
+	return renderFileLineWithinWidth(m.styles, change, m.fileFilter, background, contentWidth)
 }
 
 func (m Model) listOffset(height int) int {
@@ -2475,22 +2521,54 @@ func renderFileLine(styles theme.Styles, change gitview.FileChange, filter strin
 
 func renderFileLineWithBackground(styles theme.Styles, change gitview.FileChange, filter string, background color.Color) string {
 	status := statusIcon(change.Status)
-	counts := ""
-	if change.Binary {
-		counts = listFillWithBackground(background, " ") +
-			listStyleWithBackground(styles.Muted, background).Render(iconBinary) +
-			listFillWithBackground(background, " ") +
-			listStyleWithBackground(styles.Muted, background).Render("binary")
-	} else if change.Additions != 0 || change.Deletions != 0 {
-		counts = listFillWithBackground(background, " ") +
-			listStyleWithBackground(styles.Added, background).Render(fmt.Sprintf("+%d", change.Additions)) +
-			listFillWithBackground(background, " ") +
-			listStyleWithBackground(styles.Deleted, background).Render(fmt.Sprintf("-%d", change.Deletions))
-	}
 	return listStyleWithBackground(styles.Muted, background).Render(status) +
 		listFillWithBackground(background, " ") +
 		renderFilteredPathWithBackground(styles, change.Path, filter, background) +
-		counts
+		fileLineCounts(styles, change, background)
+}
+
+func renderFileLineWithinWidth(styles theme.Styles, change gitview.FileChange, filter string, background color.Color, width int) string {
+	status := listStyleWithBackground(styles.Muted, background).Render(statusIcon(change.Status))
+	space := listFillWithBackground(background, " ")
+	counts := fileLineCounts(styles, change, background)
+	pathWidth := max(0, width-lipgloss.Width(status)-lipgloss.Width(space)-lipgloss.Width(counts))
+	path := middleEllipsizePath(change.Path, pathWidth)
+	return status + space + renderFilteredPathWithBackground(styles, path, filter, background) + counts
+}
+
+func fileLineCounts(styles theme.Styles, change gitview.FileChange, background color.Color) string {
+	if change.Binary {
+		return listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Muted, background).Render(iconBinary) +
+			listFillWithBackground(background, " ") +
+			listStyleWithBackground(styles.Muted, background).Render("binary")
+	}
+	if change.Additions == 0 && change.Deletions == 0 {
+		return ""
+	}
+	return listFillWithBackground(background, " ") +
+		listStyleWithBackground(styles.Added, background).Render(fmt.Sprintf("+%d", change.Additions)) +
+		listFillWithBackground(background, " ") +
+		listStyleWithBackground(styles.Deleted, background).Render(fmt.Sprintf("-%d", change.Deletions))
+}
+
+func middleEllipsizePath(path string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(path) <= width {
+		return path
+	}
+	if width == 1 {
+		return "…"
+	}
+	available := width - 1
+	prefixWidth := max(1, available/3)
+	suffixWidth := max(0, available-prefixWidth)
+	if suffixWidth == 0 {
+		return ansi.Cut(path, 0, prefixWidth) + "…"
+	}
+	return ansi.Cut(path, 0, prefixWidth) + "…" + ansi.Cut(path, lipgloss.Width(path)-suffixWidth, lipgloss.Width(path))
 }
 
 func renderFilteredPath(styles theme.Styles, path, filter string) string {
