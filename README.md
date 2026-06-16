@@ -6,7 +6,9 @@
 
 ## Demo
 
-[Watch the demo](assets/tui-worktree.mp4)
+[![tui-worktree demo preview](assets/tui-worktree-preview.apng)](assets/tui-worktree.mp4)
+
+[Watch the full demo video](assets/tui-worktree.mp4)
 
 ## Project overview
 
