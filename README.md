@@ -184,3 +184,6 @@ go run ./cmd/worktree-diff-tui --repo /path/to/repo
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+Third-party dependency license notices are included under
+[third_party/licenses](third_party/licenses).

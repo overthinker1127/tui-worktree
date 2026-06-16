@@ -58,6 +58,8 @@ archives:
     files:
       - LICENSE
       - README.md
+      - third_party/README.md
+      - third_party/licenses/**/*
 
 checksum:
   name_template: checksums.txt
@@ -93,6 +95,11 @@ nfpms:
     contents:
       - src: LICENSE
         dst: /usr/share/licenses/tui-worktree/LICENSE
+      - src: third_party/README.md
+        dst: /usr/share/licenses/tui-worktree/third_party/README.md
+      - src: third_party/licenses
+        dst: /usr/share/licenses/tui-worktree/third_party/licenses
+        type: tree
 
 chocolateys:
   - name: tui-worktree
