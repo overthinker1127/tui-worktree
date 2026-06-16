@@ -63,7 +63,7 @@ brew install overthinker1127/tap/tui-worktree
 Install Linux packages from a GitHub release by downloading the package for your version and architecture first:
 
 ```bash
-version=v1.0.0
+version=v1.0.1
 curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree_${version#v}_amd64.deb"
 sudo apt install "./tui-worktree_${version#v}_amd64.deb"
 ```
@@ -71,7 +71,7 @@ sudo apt install "./tui-worktree_${version#v}_amd64.deb"
 For RPM or Alpine packages, download the matching asset from the same release page:
 
 ```bash
-version=v1.0.0
+version=v1.0.1
 curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${version}/tui-worktree-${version#v}-1.x86_64.rpm"
 sudo rpm -i "./tui-worktree-${version#v}-1.x86_64.rpm"
 
@@ -139,6 +139,8 @@ Common key bindings:
 - `tab` / `shift+tab`: next or previous worktree
 - `j` / `down`: next item or scroll diff down
 - `k` / `up`: previous item or scroll diff up
+- `h` / `left`, `l` / `right`: horizontally scroll the focused file or worktree list, or the diff when wrapping is off
+- `0` / `$`: jump the focused file or worktree list to the left or right edge
 - `/`: filter changed files by path; `esc` clears the filter
 - `g` / `home`: first file, or top of diff when diff is focused
 - `G` / `end`: last file, or bottom of diff when diff is focused
