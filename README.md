@@ -119,7 +119,7 @@ Use your terminal background instead of theme-painted backgrounds:
 tui-worktree --transparent
 ```
 
-You can also press `t` in the TUI and choose `Transparent background` at the top of the theme list.
+You can also press `t` in the TUI, move to `Transparent background`, and press `space`.
 
 Show help:
 

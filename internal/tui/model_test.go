@@ -208,16 +208,48 @@ func TestThemePickerRendersAsOverlay(t *testing.T) {
 
 	view := model.View().Content
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Themes", "Transparent background  off", "a.go", iconSelected + " tokyonight"} {
+	for _, want := range []string{"Themes", "Transparent background  ", "a.go", iconSelected + " tokyonight"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("theme overlay view missing %q in %q", want, view)
 		}
 	}
+	if strings.Contains(plain, "Transparent background  off") || strings.Contains(plain, "Transparent background  on") {
+		t.Fatalf("theme overlay should render transparent toggle as icons: %q", view)
+	}
 }
 
-func TestThemePickerTransparentRowTogglesBackground(t *testing.T) {
+func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 	model := testModel(t)
 	model.themeNames = []string{"tokyonight"}
+	var saved *bool
+	model.saveTransparent = func(value bool) error {
+		saved = &value
+		return nil
+	}
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "k", Code: 'k'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
+	got := next.(Model)
+
+	if !got.transparent {
+		t.Fatal("transparent row should enable transparent background")
+	}
+	if !got.pickingTheme {
+		t.Fatal("transparent toggle should keep theme picker open")
+	}
+	if saved == nil || !*saved {
+		t.Fatalf("saved transparent = %v, want true", saved)
+	}
+	if containsEscape(got.View().Content, "48;2;") {
+		t.Fatalf("transparent row should remove painted backgrounds: %q", got.View().Content)
+	}
+}
+
+func TestThemePickerTransparentRowEnterDoesNotToggleBackground(t *testing.T) {
+	model := testModel(t)
+	model.themeNames = []string{"tokyonight"}
+	model.transparent = true
 	var saved *bool
 	model.saveTransparent = func(value bool) error {
 		saved = &value
@@ -230,13 +262,13 @@ func TestThemePickerTransparentRowTogglesBackground(t *testing.T) {
 	got := next.(Model)
 
 	if !got.transparent {
-		t.Fatal("transparent row should enable transparent background")
+		t.Fatal("enter on transparent row should not disable transparent background")
 	}
-	if saved == nil || !*saved {
-		t.Fatalf("saved transparent = %v, want true", saved)
+	if !got.pickingTheme {
+		t.Fatal("enter on transparent row should keep theme picker open")
 	}
-	if containsEscape(got.View().Content, "48;2;") {
-		t.Fatalf("transparent row should remove painted backgrounds: %q", got.View().Content)
+	if saved != nil {
+		t.Fatalf("transparent setting should not be saved on enter, got %v", *saved)
 	}
 }
 
@@ -324,6 +356,52 @@ func TestThemePickerScrollsToCursor(t *testing.T) {
 	}
 	if strings.Contains(view, "theme-01") {
 		t.Fatalf("theme picker should not render every theme when constrained: %q", view)
+	}
+}
+
+func TestThemePickerShowsCurrentThemePosition(t *testing.T) {
+	model := testModel(t)
+	model.height = 12
+	model.themeNames = []string{
+		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
+		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
+		"theme-11", "theme-12", "theme-13", "theme-14", "theme-15",
+	}
+	model.themeCursor = 13
+	model.pickingTheme = true
+
+	view := ansi.Strip(model.renderThemePicker())
+	lines := strings.Split(view, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("theme picker view too short: %q", view)
+	}
+	statusLine := lines[len(lines)-2]
+	if !strings.Contains(statusLine, "13/15") {
+		t.Fatalf("theme picker footer should show current theme position in bottom row: %q", view)
+	}
+}
+
+func TestThemePickerShowsSpaceToggleHintOnTransparentRow(t *testing.T) {
+	model := testModel(t)
+	model.height = 12
+	model.themeNames = []string{"tokyonight", "kanagawa"}
+	model.themeCursor = 0
+	model.pickingTheme = true
+
+	view := ansi.Strip(model.renderThemePicker())
+	lines := strings.Split(view, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("theme picker view too short: %q", view)
+	}
+	statusLine := lines[len(lines)-2]
+	if !strings.Contains(statusLine, "space toggle") {
+		t.Fatalf("theme picker footer should show space toggle hint on transparent row: %q", view)
+	}
+
+	model.themeCursor = 1
+	view = ansi.Strip(model.renderThemePicker())
+	if strings.Contains(view, "space toggle") {
+		t.Fatalf("theme picker footer should hide space toggle hint away from transparent row: %q", view)
 	}
 }
 

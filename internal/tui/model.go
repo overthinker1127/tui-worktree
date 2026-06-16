@@ -94,6 +94,8 @@ const (
 	iconMerge     = ""
 	iconStatus    = "󰎟"
 	iconSelected  = "▸"
+	iconToggleOn  = ""
+	iconToggleOff = ""
 )
 
 const autoRefreshInterval = 5 * time.Second
@@ -1234,9 +1236,13 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.themeCursor > 0 {
 			m.themeCursor--
 		}
-	case "enter":
+	case " ", "space":
 		if m.themeCursor == 0 {
 			cmd = m.toggleTransparentBackground()
+		}
+	case "enter":
+		if m.themeCursor == 0 {
+			return m, nil
 		} else {
 			cmd = m.applyThemeCursor()
 		}
@@ -1422,7 +1428,6 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 		if index == 0 {
 			m.themeCursor = 0
 			cmd := m.toggleTransparentBackground()
-			m.pickingTheme = false
 			return false, cmd
 		}
 		offset := m.themePickerOffset()
@@ -2150,6 +2155,11 @@ func (m Model) renderThemePicker() string {
 	for themeIndex := offset; themeIndex < end; themeIndex++ {
 		lines = append(lines, m.renderThemePickerRow(themeIndex+1, width))
 	}
+	contentRows := max(3, m.themePickerOverlayHeight()-2)
+	for len(lines) < contentRows-1 {
+		lines = append(lines, m.styles.Diff.Width(width).Render(""))
+	}
+	lines = append(lines, m.renderThemePickerFooter(width))
 	return m.overlayPanelStyle().Width(width + 6).Render(strings.Join(lines, "\n"))
 }
 
@@ -2173,9 +2183,9 @@ func (m Model) renderThemePickerRow(index, width int) string {
 
 func (m Model) themePickerRowLabel(index int) string {
 	if index == 0 {
-		state := "off"
+		state := iconToggleOff
 		if m.transparent {
-			state = "on"
+			state = iconToggleOn
 		}
 		return "Transparent background  " + state
 	}
@@ -2184,6 +2194,41 @@ func (m Model) themePickerRowLabel(index int) string {
 		return ""
 	}
 	return m.themeNames[themeIndex]
+}
+
+func (m Model) renderThemePickerFooter(width int) string {
+	label := m.themePickerPositionLabel()
+	if m.themeCursor == 0 {
+		label = m.themePickerFooterLabel("space toggle", label, width)
+	}
+	return m.styles.Muted.
+		Background(m.overlayPanelStyle().GetBackground()).
+		Width(width).
+		Align(lipgloss.Right).
+		Render(label)
+}
+
+func (m Model) themePickerFooterLabel(hint, position string, width int) string {
+	if hint == "" {
+		return position
+	}
+	if position == "" {
+		return hint
+	}
+	spaceWidth := width - ansi.StringWidth(hint) - ansi.StringWidth(position)
+	if spaceWidth < 2 {
+		return hint
+	}
+	return hint + strings.Repeat(" ", spaceWidth) + position
+}
+
+func (m Model) themePickerPositionLabel() string {
+	total := len(m.themeNames)
+	if total == 0 {
+		return "0/0"
+	}
+	current := clamp(m.themeCursor, 0, total)
+	return fmt.Sprintf("%d/%d", current, total)
 }
 
 func (m Model) renderMergeTargetPicker() string {
@@ -2285,7 +2330,7 @@ func (m Model) themePickerVisibleRows() int {
 		return 0
 	}
 	contentRows := max(2, m.themePickerOverlayHeight()-2)
-	available := max(1, contentRows-1)
+	available := max(1, contentRows-2)
 	return min(m.themePickerTotalRows(), available)
 }
 
