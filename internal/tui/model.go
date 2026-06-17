@@ -96,6 +96,7 @@ const (
 	iconSelected  = "▸"
 	iconToggleOn  = ""
 	iconToggleOff = ""
+	iconWarning   = ""
 )
 
 const autoRefreshInterval = 5 * time.Second
@@ -163,9 +164,19 @@ type Model struct {
 	creatingPR          bool
 	pickingMergeTarget  bool
 	confirmMerge        bool
+	pickingOverlap      bool
+	comparingOverlap    bool
 	submittingPR        bool
 	deletingWorktree    bool
 	mergingBranch       bool
+	overlapCursor       int
+	overlapTargets      []overlapTarget
+	compareTarget       overlapTarget
+	compareDiff         string
+	compareLoading      bool
+	compareYOffset      int
+	compareXOffset      int
+	compareGeneration   int
 	prTitle             textinput.Model
 	prBody              textarea.Model
 	prFormFocus         prFormFocus
@@ -183,6 +194,11 @@ type Model struct {
 	createPullRequest   func(context.Context, PullRequestRequest) error
 	mergeBranch         func(context.Context, MergeRequest) error
 	viewport            viewport.Model
+}
+
+type overlapTarget struct {
+	Worktree gitview.Worktree
+	Change   gitview.FileChange
 }
 
 func NewModel(cfg Config) Model {
@@ -331,6 +347,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case compareDiffLoadedMsg:
+		if msg.generation != m.compareGeneration || !m.comparingOverlap {
+			return m, nil
+		}
+		if m.compareTarget.Worktree.Path != msg.worktree || m.compareTarget.Change.Path != msg.path {
+			return m, nil
+		}
+		m.compareDiff = msg.diff
+		m.compareLoading = false
+		m.clampCompareOffsets()
+		return m, nil
 	case autoRefreshMsg:
 		m.revision++
 		if m.reload == nil {
@@ -354,6 +381,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 	case tea.MouseWheelMsg:
+		if m.comparingOverlap {
+			return m.handleOverlapCompareWheel(msg.Mouse())
+		}
 		if m.pickingTheme {
 			return m.handleThemeWheel(msg.Mouse())
 		}
@@ -369,6 +399,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.filteringFiles {
 		return m.handleFileFilterKey(msg)
+	}
+	if m.comparingOverlap {
+		return m.handleOverlapCompareKey(msg)
+	}
+	if m.pickingOverlap {
+		return m.handleOverlapPickerKey(msg)
 	}
 	if m.creatingPR {
 		return m.handlePRFormKey(msg)
@@ -419,6 +455,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.openPRForm()
 	case "m":
 		return m, m.openMergeTargetPicker()
+	case "o":
+		return m, m.openOverlapPicker()
 	case "tab":
 		m.moveWorktree(1)
 		return m, m.ensureSelectedDiffCmd()
@@ -525,6 +563,8 @@ func (m Model) View() tea.View {
 		body = m.renderOverlay(body, m.renderThemePicker())
 	} else if m.filteringFiles {
 		body = m.renderOverlay(body, m.renderFileFilter())
+	} else if m.pickingOverlap {
+		body = m.renderOverlay(body, m.renderOverlapPicker())
 	} else if m.confirmDelete {
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
 	} else if m.creatingPR {
@@ -533,6 +573,9 @@ func (m Model) View() tea.View {
 		body = m.renderOverlay(body, m.renderMergeConfirm())
 	} else if m.pickingMergeTarget {
 		body = m.renderOverlay(body, m.renderMergeTargetPicker())
+	}
+	if m.comparingOverlap {
+		body = m.renderOverlapCompare(body)
 	}
 	body = m.renderToast(body)
 
@@ -571,6 +614,9 @@ func (m Model) footerText() string {
 			m.footerHint(iconFile, "/", "filter"),
 			m.footerHint(iconEdit, "e", "edit"),
 		)
+	}
+	if len(m.overlapTargetsFor(m.Selected())) > 0 {
+		segments = append(segments, m.footerHint(iconWarning, "o", "overlaps"))
 	}
 	segments = append(segments,
 		m.footerHint(iconTheme, "t", "themes"),
@@ -753,6 +799,27 @@ func (m *Model) scrollDiffHorizontal(delta int) {
 	m.viewport.SetXOffset(clamp(m.viewport.XOffset()+delta*step, 0, m.maxDiffXOffset()))
 }
 
+func (m *Model) scrollOverlapCompare(delta int) {
+	m.compareYOffset = clamp(m.compareYOffset+delta, 0, m.maxCompareYOffset())
+}
+
+func (m *Model) scrollOverlapCompareHorizontal(delta int) {
+	if m.viewport.SoftWrap {
+		return
+	}
+	step := 6
+	m.compareXOffset = clamp(m.compareXOffset+delta*step, 0, m.maxCompareXOffset())
+}
+
+func (m *Model) clampCompareOffsets() {
+	m.compareYOffset = clamp(m.compareYOffset, 0, m.maxCompareYOffset())
+	if m.viewport.SoftWrap {
+		m.compareXOffset = 0
+		return
+	}
+	m.compareXOffset = clamp(m.compareXOffset, 0, m.maxCompareXOffset())
+}
+
 func (m *Model) scrollMergeConfirmHorizontal(delta int) {
 	step := 6
 	contentWidth := m.mergeConfirmContentWidth(m.mergeConfirmWidth())
@@ -766,6 +833,51 @@ func (m Model) maxDiffXOffset() int {
 func (m Model) maxDiffLineWidth() int {
 	width := 0
 	for _, line := range m.diffLines {
+		width = max(width, lipgloss.Width(line))
+	}
+	return width
+}
+
+func (m Model) maxCompareYOffset() int {
+	_, height := m.compareColumnDimensions()
+	return max(0, max(m.diffDisplayLineCount(m.selectedDiff()), m.diffDisplayLineCount(m.compareDiff))-height)
+}
+
+func (m Model) maxCompareXOffset() int {
+	width, _ := m.compareColumnDimensions()
+	textWidth := m.diffTextWidth(width)
+	return max(0, max(m.maxDiffTextLineWidth(m.selectedDiff()), m.maxDiffTextLineWidth(m.compareDiff))-textWidth)
+}
+
+func (m Model) compareColumnDimensions() (int, int) {
+	if m.width < 96 {
+		return 1, 1
+	}
+	innerWidth := panelInnerWidth(m.width)
+	columnWidth := max(1, (innerWidth-1)/2)
+	return columnWidth, max(1, panelInnerHeight(m.bodyHeight()))
+}
+
+func (m Model) diffDisplayLineCount(diff string) int {
+	if diff == "" {
+		return 1
+	}
+	numbered := numberedDiffLines(strings.Split(diff, "\n"))
+	if !m.viewport.SoftWrap {
+		return len(numbered)
+	}
+	width, _ := m.compareColumnDimensions()
+	textWidth := m.diffTextWidth(width)
+	count := 0
+	for _, line := range numbered {
+		count += len(wrapDisplaySegments(line.text, textWidth))
+	}
+	return max(1, count)
+}
+
+func (m Model) maxDiffTextLineWidth(diff string) int {
+	width := 0
+	for _, line := range strings.Split(diff, "\n") {
 		width = max(width, lipgloss.Width(line))
 	}
 	return width
@@ -844,7 +956,7 @@ func (m Model) maxFileScrollX() int {
 		return 0
 	}
 	available := m.listContentWidthForPane(paneFiles)
-	return max(0, lipgloss.Width(renderFileLine(m.styles, m.Selected(), m.fileFilter))-available)
+	return max(0, lipgloss.Width(m.renderFileListLineFull(m.Selected(), m.styles.Panel.GetBackground()))-available)
 }
 
 func (m Model) listContentWidthForPane(_ focusedPane) int {
@@ -917,6 +1029,184 @@ func (m *Model) openMergeTargetPicker() tea.Cmd {
 	m.pickingMergeTarget = true
 	m.focusedPane = paneWorktrees
 	return nil
+}
+
+func (m *Model) openOverlapPicker() tea.Cmd {
+	targets := m.overlapTargetsFor(m.Selected())
+	if len(targets) == 0 {
+		return m.showToast("no overlaps for selected file")
+	}
+	m.overlapTargets = targets
+	m.overlapCursor = 0
+	m.pickingOverlap = true
+	m.comparingOverlap = false
+	return nil
+}
+
+func (m Model) overlapTargetsFor(change gitview.FileChange) []overlapTarget {
+	if change.Path == "" {
+		return nil
+	}
+	selectedWorktreePath := m.SelectedWorktree().Path
+	paths := changePathSet(change)
+	targets := make([]overlapTarget, 0)
+	for _, state := range m.worktrees {
+		if state.Worktree.Path == selectedWorktreePath {
+			continue
+		}
+		for _, candidate := range state.Changes {
+			if changesOverlap(paths, candidate) {
+				targets = append(targets, overlapTarget{Worktree: state.Worktree, Change: candidate})
+			}
+		}
+	}
+	return targets
+}
+
+func (m Model) visibleOverlapCount() int {
+	total := 0
+	for _, change := range m.visibleChanges() {
+		total += len(m.overlapTargetsFor(change))
+	}
+	return total
+}
+
+func changePathSet(change gitview.FileChange) map[string]struct{} {
+	paths := make(map[string]struct{}, 2)
+	if change.Path != "" {
+		paths[change.Path] = struct{}{}
+	}
+	if change.OldPath != "" {
+		paths[change.OldPath] = struct{}{}
+	}
+	return paths
+}
+
+func changesOverlap(paths map[string]struct{}, candidate gitview.FileChange) bool {
+	if _, ok := paths[candidate.Path]; ok && candidate.Path != "" {
+		return true
+	}
+	if _, ok := paths[candidate.OldPath]; ok && candidate.OldPath != "" {
+		return true
+	}
+	return false
+}
+
+func (m Model) handleOverlapPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		m.pickingOverlap = false
+		m.overlapTargets = nil
+		m.overlapCursor = 0
+		return m, nil
+	case "j", "down":
+		if m.overlapCursor < len(m.overlapTargets)-1 {
+			m.overlapCursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.overlapCursor > 0 {
+			m.overlapCursor--
+		}
+		return m, nil
+	case "enter":
+		return m, m.openOverlapCompare()
+	}
+	return m, nil
+}
+
+func (m *Model) openOverlapCompare() tea.Cmd {
+	if len(m.overlapTargets) == 0 || m.overlapCursor < 0 || m.overlapCursor >= len(m.overlapTargets) {
+		return m.showToast("no overlap selected")
+	}
+	m.compareTarget = m.overlapTargets[m.overlapCursor]
+	m.compareDiff = ""
+	m.compareLoading = true
+	m.compareYOffset = 0
+	m.compareXOffset = 0
+	m.compareGeneration++
+	m.pickingOverlap = false
+	m.comparingOverlap = true
+	return m.compareDiffCmd(m.compareTarget)
+}
+
+func (m Model) compareDiffCmd(target overlapTarget) tea.Cmd {
+	if m.loadDiff == nil {
+		return func() tea.Msg {
+			return compareDiffLoadedMsg{
+				generation: m.compareGeneration,
+				worktree:   target.Worktree.Path,
+				path:       target.Change.Path,
+				diff:       fmt.Sprintf("No diff loader configured for %s", target.Change.Path),
+			}
+		}
+	}
+	return func() tea.Msg {
+		return compareDiffLoadedMsg{
+			generation: m.compareGeneration,
+			worktree:   target.Worktree.Path,
+			path:       target.Change.Path,
+			diff:       m.loadDiff(m.context, target.Worktree.Path, target.Change),
+		}
+	}
+}
+
+func (m Model) handleOverlapCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		m.comparingOverlap = false
+		m.compareTarget = overlapTarget{}
+		m.compareDiff = ""
+		m.compareLoading = false
+		m.compareYOffset = 0
+		m.compareXOffset = 0
+		m.compareGeneration++
+		return m, nil
+	case "w":
+		cmd := m.toggleDiffWrap()
+		m.clampCompareOffsets()
+		return m, cmd
+	case "n":
+		cmd := m.toggleLineNumbers()
+		m.clampCompareOffsets()
+		return m, cmd
+	case "j", "down":
+		m.scrollOverlapCompare(1)
+	case "k", "up":
+		m.scrollOverlapCompare(-1)
+	case "g", "home":
+		m.compareYOffset = 0
+	case "G", "end":
+		m.compareYOffset = m.maxCompareYOffset()
+	case "h", "left":
+		m.scrollOverlapCompareHorizontal(-1)
+	case "l", "right":
+		m.scrollOverlapCompareHorizontal(1)
+	case "0":
+		if !m.viewport.SoftWrap {
+			m.compareXOffset = 0
+		}
+	case "$":
+		if !m.viewport.SoftWrap {
+			m.compareXOffset = m.maxCompareXOffset()
+		}
+	}
+	m.clampCompareOffsets()
+	return m, nil
+}
+
+func (m Model) handleOverlapCompareWheel(mouse tea.Mouse) (tea.Model, tea.Cmd) {
+	switch mouse.Button {
+	case tea.MouseWheelUp:
+		m.scrollOverlapCompare(-3)
+	case tea.MouseWheelDown:
+		m.scrollOverlapCompare(3)
+	}
+	return m, nil
 }
 
 func (m Model) isDefaultBranch(worktree gitview.Worktree) bool {
@@ -1919,11 +2209,26 @@ func (m Model) renderFiles(width, height int) string {
 
 func (m Model) renderFileListLine(change gitview.FileChange, background color.Color, rowWidth int) string {
 	if m.fileScrollX > 0 || m.fileFilter != "" {
-		return renderFileLineWithBackground(m.styles, change, m.fileFilter, background)
+		return m.renderFileListLineFull(change, background)
 	}
 	prefixWidth := lipgloss.Width(iconSelected + " ")
 	contentWidth := max(1, rowWidth-prefixWidth)
-	return renderFileLineWithinWidth(m.styles, change, m.fileFilter, background, contentWidth)
+	return renderFileLineWithinWidth(m.styles, change, m.fileFilter, background, contentWidth, m.fileOverlapBadge(change, background))
+}
+
+func (m Model) renderFileListLineFull(change gitview.FileChange, background color.Color) string {
+	return renderFileLineWithBackground(m.styles, change, m.fileFilter, background, m.fileOverlapBadge(change, background))
+}
+
+func (m Model) fileOverlapBadge(change gitview.FileChange, background color.Color) string {
+	count := len(m.overlapTargetsFor(change))
+	if count == 0 {
+		return ""
+	}
+	return listFillWithBackground(background, " ") +
+		listStyleWithBackground(m.styles.Muted, background).Render(iconWarning) +
+		listFillWithBackground(background, " ") +
+		listStyleWithBackground(m.styles.Muted, background).Render(fmt.Sprintf("overlap %d", count))
 }
 
 func (m Model) listOffset(height int) int {
@@ -1957,6 +2262,10 @@ func (m Model) filesTitle(visibleCount int) string {
 		return fmt.Sprintf("[2]-%s %d filtered [Esc]", iconFile, visibleCount)
 	}
 	title := fmt.Sprintf("[2]-%s %d files", iconFile, visibleCount)
+	overlaps := m.visibleOverlapCount()
+	if overlaps > 0 {
+		title += fmt.Sprintf("  %d overlaps", overlaps)
+	}
 	return title
 }
 
@@ -2280,6 +2589,146 @@ func (m Model) renderMergeConfirm() string {
 	return panel.Render(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderOverlapPicker() string {
+	width := min(max(44, m.width-12), 78)
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
+	title := m.styles.Title.
+		Background(panel.GetBackground()).
+		Width(contentWidth).
+		Render(iconWarning + " Overlaps for " + m.Selected().Path)
+	lines := []string{title}
+	visibleRows := min(len(m.overlapTargets), max(1, m.bodyHeight()-8))
+	offset := m.overlapPickerOffset(visibleRows)
+	end := min(len(m.overlapTargets), offset+visibleRows)
+	for i := offset; i < end; i++ {
+		lines = append(lines, m.renderOverlapPickerRow(i, contentWidth))
+	}
+	if len(m.overlapTargets) == 0 {
+		lines = append(lines, m.styles.Muted.Background(panel.GetBackground()).Width(contentWidth).Render("No overlaps"))
+	}
+	return panel.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) overlapPickerOffset(visibleRows int) int {
+	if visibleRows <= 0 || len(m.overlapTargets) <= visibleRows || m.overlapCursor < visibleRows {
+		return 0
+	}
+	return min(m.overlapCursor-visibleRows+1, len(m.overlapTargets)-visibleRows)
+}
+
+func (m Model) renderOverlapPickerRow(index, width int) string {
+	target := m.overlapTargets[index]
+	style := m.styles.Diff.Background(m.overlayPanelStyle().GetBackground())
+	prefix := "  "
+	if index == m.overlapCursor {
+		style = m.styles.FileSelected
+		prefix = iconSelected + " "
+	}
+	label := prefix + worktreeLabel(target.Worktree)
+	if target.Worktree.Path != "" {
+		label += "  " + target.Worktree.Path
+	}
+	return renderOverlayLine(style, width, label, 0)
+}
+
+func (m Model) renderOverlapCompare(background string) string {
+	width := m.width
+	height := m.bodyHeight()
+	if width < 96 {
+		return m.renderOverlay(background, m.renderOverlapCompareNarrowMessage())
+	}
+	return m.renderOverlapComparePanel(width, height)
+}
+
+func (m Model) renderOverlapCompareNarrowMessage() string {
+	width := min(max(42, m.width-8), 64)
+	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
+	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
+	lines := []string{
+		m.styles.Title.Background(panel.GetBackground()).Width(contentWidth).Render(iconWarning + " Compare"),
+		m.styles.Diff.Background(panel.GetBackground()).Width(contentWidth).Render("Widen the terminal for side-by-side compare."),
+	}
+	return panel.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderOverlapComparePanel(width, height int) string {
+	width = max(4, width)
+	height = max(4, height)
+	title := fmt.Sprintf("[3]-Compare %s ↔ %s  %s", worktreeLabel(m.SelectedWorktree()), worktreeLabel(m.compareTarget.Worktree), m.Selected().Path)
+	innerWidth := panelInnerWidth(width)
+	innerHeight := panelInnerHeight(height)
+	dividerWidth := 1
+	columnWidth := max(1, (innerWidth-dividerWidth)/2)
+	contentHeight := innerHeight
+	leftDiff := m.selectedDiff()
+	if leftDiff == "" {
+		leftDiff = fmt.Sprintf("No diff loaded for %s", m.Selected().Path)
+	}
+	rightDiff := m.compareDiff
+	if m.compareLoading {
+		rightDiff = "Loading overlap diff..."
+	} else if rightDiff == "" {
+		rightDiff = fmt.Sprintf("No diff loaded for %s", m.compareTarget.Change.Path)
+	}
+	left := strings.Split(m.renderDiffTextAt(leftDiff, columnWidth, contentHeight, m.compareYOffset, m.compareXOffset), "\n")
+	right := strings.Split(m.renderDiffTextAt(rightDiff, columnWidth, contentHeight, m.compareYOffset, m.compareXOffset), "\n")
+	divider := m.styles.Muted.Background(m.styles.Diff.GetBackground()).Render("│")
+	lines := make([]string, 0, contentHeight)
+	for i := range contentHeight {
+		leftLine, rightLine := "", ""
+		if i < len(left) {
+			leftLine = left[i]
+		}
+		if i < len(right) {
+			rightLine = right[i]
+		}
+		lines = append(lines, leftLine+divider+rightLine)
+	}
+	return m.renderPanelWithFillStyles(width, height, true, title, strings.Join(lines, "\n"), m.styles.Diff, m.styles.Diff)
+}
+
+func (m Model) renderDiffTextAt(diff string, width, height, yOffset, xOffset int) string {
+	width = max(1, width)
+	height = max(1, height)
+	textWidth := m.diffTextWidth(width)
+	numbered := numberedDiffLines(strings.Split(diff, "\n"))
+	if m.viewport.SoftWrap {
+		return m.renderWrappedDiffLines(numbered, width, textWidth, height, yOffset)
+	}
+	return m.renderUnwrappedDiffLines(numbered, width, textWidth, height, yOffset, xOffset)
+}
+
+func (m Model) renderWrappedDiffLines(numbered []numberedDiffLine, width, textWidth, height, yOffset int) string {
+	lines := make([]string, 0, height)
+	seen := 0
+	for _, line := range numbered {
+		style := m.diffLineStyle(line.text)
+		highlight := shouldHighlightDiffSyntaxLine(line)
+		segments := wrapDisplaySegments(line.text, textWidth)
+		for segmentIndex, segment := range segments {
+			if seen >= yOffset {
+				lines = append(lines, m.renderDiffSegment(style, m.lineNumberGutter(line, segmentIndex > 0), segment, width, textWidth, highlight))
+				if len(lines) == height {
+					return strings.Join(lines, "\n")
+				}
+			}
+			seen++
+		}
+	}
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth, false)), "\n")
+}
+
+func (m Model) renderUnwrappedDiffLines(numbered []numberedDiffLine, width, textWidth, height, yOffset, xOffset int) string {
+	lines := make([]string, 0, height)
+	for i := yOffset; i < len(numbered) && len(lines) < height; i++ {
+		line := numbered[i]
+		segment := ansi.Cut(line.text, xOffset, xOffset+textWidth)
+		lines = append(lines, m.renderDiffSegment(m.diffLineStyle(line.text), m.lineNumberGutter(line, false), segment, width, textWidth, shouldHighlightDiffSyntaxLine(line)))
+	}
+	return strings.Join(fillStyledLines(lines, height, m.renderDiffSegment(m.styles.Diff, "", "", width, textWidth, false)), "\n")
+}
+
 func (m Model) mergeConfirmTextLines() []string {
 	request := m.mergeRequest
 	source := worktreeLabel(request.Source)
@@ -2573,21 +3022,26 @@ func renderFileLine(styles theme.Styles, change gitview.FileChange, filter strin
 	return renderFileLineWithBackground(styles, change, filter, styles.Panel.GetBackground())
 }
 
-func renderFileLineWithBackground(styles theme.Styles, change gitview.FileChange, filter string, background color.Color) string {
+func renderFileLineWithBackground(styles theme.Styles, change gitview.FileChange, filter string, background color.Color, suffixParts ...string) string {
+	suffix := ""
+	if len(suffixParts) > 0 {
+		suffix = suffixParts[0]
+	}
 	status := statusIcon(change.Status)
 	return listStyleWithBackground(styles.Muted, background).Render(status) +
 		listFillWithBackground(background, " ") +
 		renderFilteredPathWithBackground(styles, change.Path, filter, background) +
-		fileLineCounts(styles, change, background)
+		fileLineCounts(styles, change, background) +
+		suffix
 }
 
-func renderFileLineWithinWidth(styles theme.Styles, change gitview.FileChange, filter string, background color.Color, width int) string {
+func renderFileLineWithinWidth(styles theme.Styles, change gitview.FileChange, filter string, background color.Color, width int, suffix string) string {
 	status := listStyleWithBackground(styles.Muted, background).Render(statusIcon(change.Status))
 	space := listFillWithBackground(background, " ")
 	counts := fileLineCounts(styles, change, background)
-	pathWidth := max(0, width-lipgloss.Width(status)-lipgloss.Width(space)-lipgloss.Width(counts))
+	pathWidth := max(0, width-lipgloss.Width(status)-lipgloss.Width(space)-lipgloss.Width(counts)-lipgloss.Width(suffix))
 	path := middleEllipsizePath(change.Path, pathWidth)
-	return status + space + renderFilteredPathWithBackground(styles, path, filter, background) + counts
+	return status + space + renderFilteredPathWithBackground(styles, path, filter, background) + counts + suffix
 }
 
 func fileLineCounts(styles theme.Styles, change gitview.FileChange, background color.Color) string {
@@ -2740,4 +3194,11 @@ type diffLoadedMsg struct {
 	path        string
 	diff        string
 	diffYOffset int
+}
+
+type compareDiffLoadedMsg struct {
+	generation int
+	worktree   string
+	path       string
+	diff       string
 }

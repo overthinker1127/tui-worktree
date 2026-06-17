@@ -1402,6 +1402,240 @@ func TestViewShowsWorktreeSidebar(t *testing.T) {
 	}
 }
 
+func TestOverlapTargetsDetectSamePathAndExcludeCurrentWorktree(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/model.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/model.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/other", Branch: "other"},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/other.go", Status: gitview.Modified}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	targets := model.overlapTargetsFor(model.Selected())
+
+	if len(targets) != 1 {
+		t.Fatalf("overlapTargetsFor() len = %d, want 1: %#v", len(targets), targets)
+	}
+	if targets[0].Worktree.Path != "/repo/.worktrees/feature" || targets[0].Change.Path != "internal/tui/model.go" {
+		t.Fatalf("overlap target = %#v, want feature model.go", targets[0])
+	}
+}
+
+func TestOverlapTargetsIncludeRenameOldPath(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/model.go", OldPath: "internal/tui/old_model.go", Status: gitview.Renamed}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/old_model.go", Status: gitview.Modified}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	targets := model.overlapTargetsFor(model.Selected())
+
+	if len(targets) != 1 {
+		t.Fatalf("rename old path should overlap, got %#v", targets)
+	}
+	if got := targets[0].Change.Path; got != "internal/tui/old_model.go" {
+		t.Fatalf("overlap change path = %q, want old path match", got)
+	}
+}
+
+func TestFilesListRendersOverlapMarkerAndCount(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes: []gitview.FileChange{
+				{Path: "internal/tui/model.go", Status: gitview.Modified},
+				{Path: "README.md", Status: gitview.Modified},
+			},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/model.go", Status: gitview.Modified}},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/experiment", Branch: "experiment"},
+			Changes:  []gitview.FileChange{{Path: "internal/tui/model.go", Status: gitview.Modified}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+
+	plain := ansi.Strip(model.renderFiles(58, 8))
+
+	for _, want := range []string{"[2]-", "2 files", "2 overlaps", iconWarning, "internal/tui/model.go", "overlap 2"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("files list missing %q in %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "README.md overlap") {
+		t.Fatalf("non-overlapped file should not show overlap marker: %q", plain)
+	}
+}
+
+func TestOverlapKeyOpensPickerOnlyForOverlappedFile(t *testing.T) {
+	model := overlapTestModel(t)
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	got := next.(Model)
+
+	if cmd != nil {
+		t.Fatalf("overlap picker should not load a diff yet")
+	}
+	if !got.pickingOverlap || len(got.overlapTargets) != 1 {
+		t.Fatalf("o should open picker for overlapped file: %#v", got)
+	}
+	if view := ansi.Strip(got.View().Content); !strings.Contains(view, "Overlaps for a.go") || !strings.Contains(view, "feature") || !strings.Contains(view, "/repo/.worktrees/feature") {
+		t.Fatalf("overlap picker view missing details: %q", view)
+	}
+
+	model = overlapTestModel(t)
+	model.selected = 1
+	model.refreshDiff()
+	next, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	got = next.(Model)
+
+	if cmd == nil {
+		t.Fatal("non-overlapped file should show info toast")
+	}
+	if got.pickingOverlap {
+		t.Fatal("non-overlapped file should not open picker")
+	}
+	if got.toast.Message != "no overlaps for selected file" || got.toast.Kind != toastInfo {
+		t.Fatalf("toast = %#v, want no overlaps info", got.toast)
+	}
+}
+
+func TestOverlapPickerEnterOpensCompareAndEscRestoresNormalDiff(t *testing.T) {
+	model := overlapTestModel(t)
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	got := next.(Model)
+
+	if !got.comparingOverlap || got.pickingOverlap {
+		t.Fatalf("enter should open compare and close picker: comparing=%v picking=%v", got.comparingOverlap, got.pickingOverlap)
+	}
+	if got.compareTarget.Worktree.Branch != "feature" {
+		t.Fatalf("compare target branch = %q, want feature", got.compareTarget.Worktree.Branch)
+	}
+	if cmd == nil {
+		t.Fatal("opening compare should load overlap diff")
+	}
+	next, _ = got.Update(cmd())
+	got = next.(Model)
+	if !strings.Contains(got.compareDiff, "+feature") {
+		t.Fatalf("compare diff was not loaded: %q", got.compareDiff)
+	}
+	view := ansi.Strip(got.View().Content)
+	for _, want := range []string{"main ↔ feature", "a.go", "+current", "+feature"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("compare view missing %q in %q", want, view)
+		}
+	}
+
+	got.viewport.SetYOffset(3)
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	got = next.(Model)
+
+	if got.comparingOverlap || got.pickingOverlap {
+		t.Fatal("esc should close overlap modal state")
+	}
+	if got.SelectedWorktree().Branch != "main" || got.Selected().Path != "a.go" {
+		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.SelectedWorktree(), got.Selected())
+	}
+}
+
+func TestOverlapCompareLoadSurvivesAutoRefreshRevisionChange(t *testing.T) {
+	model := overlapTestModel(t)
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	model = next.(Model)
+	if cmd == nil {
+		t.Fatal("opening compare should load overlap diff")
+	}
+	next, _ = model.Update(autoRefreshMsg{})
+	model = next.(Model)
+
+	next, _ = model.Update(cmd())
+	got := next.(Model)
+
+	if got.compareLoading {
+		t.Fatal("compare load should finish even if auto-refresh changed model revision")
+	}
+	if !strings.Contains(got.compareDiff, "+feature") {
+		t.Fatalf("compare diff was not loaded after refresh: %q", got.compareDiff)
+	}
+}
+
+func TestOverlapPickerEscClosesWithoutChangingSelection(t *testing.T) {
+	model := overlapTestModel(t)
+
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	got := next.(Model)
+
+	if got.pickingOverlap || got.comparingOverlap {
+		t.Fatal("esc should close picker")
+	}
+	if got.SelectedWorktree().Branch != "main" || got.Selected().Path != "a.go" {
+		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.SelectedWorktree(), got.Selected())
+	}
+}
+
+func TestCompareScrollKeysMoveSharedOffsets(t *testing.T) {
+	model := overlapTestModel(t)
+	model.height = 8
+	longLine := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 4)
+	model.diffs[model.diffKey(model.Selected())] = "diff --git a/a.go b/a.go\n@@ -1,12 +1,12 @@\n line-1\n line-2\n line-3\n line-4\n line-5\n line-6\n line-7\n line-8\n+" + longLine
+	model.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n@@ -1 +1 @@\n+" + longLine + worktreePath
+	}
+	model.refreshDiff()
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	model = next.(Model)
+	next, _ = model.Update(cmd())
+	model = next.(Model)
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = next.(Model)
+	if model.compareYOffset == 0 {
+		t.Fatal("j should scroll compare overlay down")
+	}
+
+	model.viewport.SoftWrap = false
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+	model = next.(Model)
+	if model.compareXOffset == 0 {
+		t.Fatal("l should scroll compare overlay horizontally when wrap is off")
+	}
+
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	model = next.(Model)
+	if model.compareYOffset != 0 {
+		t.Fatalf("g should jump compare overlay to top, got %d", model.compareYOffset)
+	}
+}
+
 func TestWorktreeLineOmitsShortcutAndChangeCount(t *testing.T) {
 	model := testModel(t)
 	line := renderWorktreeLine(model.styles, 3, WorktreeState{
@@ -3304,6 +3538,36 @@ func testModel(t *testing.T) Model {
 		Changes:   []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
 		Diffs:     map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},
 	})
+}
+
+func overlapTestModel(t *testing.T) Model {
+	t.Helper()
+	model := testModel(t)
+	model.width = 120
+	model.height = 24
+	model.worktrees = []WorktreeState{
+		{
+			Worktree: gitview.Worktree{Path: "/repo", Branch: "main", Current: true},
+			Changes: []gitview.FileChange{
+				{Path: "a.go", Status: gitview.Modified},
+				{Path: "b.go", Status: gitview.Modified},
+			},
+		},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes:  []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
+		},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	model.diffs = map[string]string{
+		model.diffKey(model.Selected()): "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-current\n+current",
+	}
+	model.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n@@ -1 +1 @@\n-overlap\n+feature " + worktreePath
+	}
+	model.refreshDiff()
+	return model
 }
 
 func containsEscape(value string, want string) bool {
