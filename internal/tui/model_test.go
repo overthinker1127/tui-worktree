@@ -1433,7 +1433,13 @@ func TestDeleteKeyShowsConfirmForUnprotectedWorktree(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
 	model.worktrees = []WorktreeState{
-		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+		{
+			Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
+			Changes: []gitview.FileChange{
+				{Path: "README.md", Status: gitview.Modified},
+				{Path: "new.txt", Status: gitview.Added},
+			},
+		},
 	}
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
@@ -1448,7 +1454,7 @@ func TestDeleteKeyShowsConfirmForUnprotectedWorktree(t *testing.T) {
 		t.Fatal("delete key should open confirm dialog")
 	}
 	view := ansi.Strip(got.View().Content)
-	for _, want := range []string{"DELETE", "feature", "remove worktree and delete branch", "[Y]es", "[N]o"} {
+	for _, want := range []string{"DELETE", "feature", "/repo/.worktrees/feature", "2 changed files", "remove worktree and delete branch", "[Y]es", "[N]o"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("delete confirm view missing %q: %q", want, view)
 		}

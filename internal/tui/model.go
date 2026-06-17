@@ -2095,11 +2095,22 @@ func (m Model) renderDeleteConfirm() string {
 	lines := []string{
 		title,
 		lineStyle.Width(width).Render(""),
+		renderOverlayLine(lineStyle, width, "Branch: "+worktreeLabel(worktree), 0),
+		renderOverlayLine(lineStyle, width, "Path: "+worktree.Path, 0),
+		renderOverlayLine(lineStyle, width, "Changes: "+changedFilesText(len(m.changes)), 0),
+		lineStyle.Width(width).Render(""),
 		lineStyle.Width(width).Align(lipgloss.Center).Render("remove worktree and delete branch"),
 		lineStyle.Width(width).Render(""),
 		options,
 	}
 	return panel.Width(width+4).Padding(1, 2).Render(strings.Join(lines, "\n"))
+}
+
+func changedFilesText(count int) string {
+	if count == 1 {
+		return "1 changed file"
+	}
+	return fmt.Sprintf("%d changed files", count)
 }
 
 func (m Model) confirmButton(key, label string) string {
