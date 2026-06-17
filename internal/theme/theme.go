@@ -99,7 +99,6 @@ var presets = map[string]Theme{
 	},
 	"gruvbox-dark":    gruvboxDark(),
 	"gruvbox-light":   gruvboxLight(),
-	"solarized":       solarizedDark(),
 	"solarized-dark":  solarizedDark(),
 	"solarized-light": solarizedLight(),
 	"nord": {

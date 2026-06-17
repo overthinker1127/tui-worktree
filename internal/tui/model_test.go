@@ -458,7 +458,7 @@ func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	model.themeNames = []string{
 		"ayu", "catppuccin", "dracula", "everforest", "gruvbox-dark",
 		"kanagawa", "monokai", "nord", "one-dark", "rose-pine",
-		"solarized", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
+		"solarized-dark", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
 	}
 	model.themeCursor = 8
 	model.pickingTheme = true
