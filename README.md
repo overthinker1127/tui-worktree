@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Review changes across Git worktrees in your terminal.</strong>
+  <strong>A terminal UI for reviewing AI-generated Git worktree changes.</strong>
 </p>
 
 ## Demo
@@ -18,13 +18,13 @@
 
 ## Project overview
 
-`tui-worktree` helps you review AI-generated work without losing your place.
+`tui-worktree` is a terminal UI for reviewing changes across Git worktrees, especially when AI coding agents create work in parallel.
 
-When you work with tools like **Superpower**, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
+When you work with tools like **Superpower**, **Codex**, or **Claude Code**, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
 
 `tui-worktree` puts that review in one place. You can move through worktrees, see changed files, read the diff, filter by path, and open the exact file you care about without breaking flow.
 
-It is built to make **Superpower-driven coding sessions** easier to trust: keep generated work isolated in worktrees, inspect every change from one focused TUI, then decide whether to merge, continue, or delete it.
+It is built to make **AI-agent-driven coding sessions** easier to trust: keep generated work isolated in worktrees, inspect every change from one focused TUI, then decide whether to merge, continue, or delete it.
 
 The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the TUI.
 
@@ -34,7 +34,7 @@ AI coding is most useful when the user can review the result comfortably. If the
 
 This project was also born from a practical gap: before a PR or MR exists, worktree changes are often awkward to inspect. The code is already there, but the review surface is still split across shell commands and editor tabs.
 
-This app is meant to be the comfortable viewing layer between AI work and your next decision. It makes it easier to scan, compare, and inspect changes before you hand them off to merge, continue editing, or throw them away.
+This app is meant to be the comfortable viewing layer between AI work and your next decision. Tools like lazygit are excellent for working inside the current repo or branch; `tui-worktree` focuses on reviewing results spread across multiple worktrees before you hand them off to merge, continue editing, or throw them away.
 
 ## Features
 
