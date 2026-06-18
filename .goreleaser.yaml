@@ -101,29 +101,6 @@ nfpms:
         dst: /usr/share/licenses/tui-worktree/third_party/licenses
         type: tree
 
-chocolateys:
-  - name: tui-worktree
-    ids:
-      - tui-worktree
-    package_source_url: https://github.com/overthinker1127/tui-worktree
-    owners: overthinker1127
-    title: tui-worktree
-    authors: overthinker1127
-    project_url: https://github.com/overthinker1127/tui-worktree
-    license_url: https://github.com/overthinker1127/tui-worktree/blob/main/LICENSE
-    project_source_url: https://github.com/overthinker1127/tui-worktree
-    docs_url: https://github.com/overthinker1127/tui-worktree/blob/main/README.md
-    bug_tracker_url: https://github.com/overthinker1127/tui-worktree/issues
-    tags: git worktree tui cli
-    summary: Terminal UI for reviewing and managing Git worktrees
-    description: |
-      tui-worktree is a terminal UI for reviewing and managing linked Git worktrees.
-      It presents worktrees, changed files, and diffs in a compact layout.
-    release_notes: "https://github.com/overthinker1127/tui-worktree/releases/tag/{{ .Tag }}"
-    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
-    source_repo: "https://push.chocolatey.org/"
-    skip_publish: false
-
 release:
   github:
     owner: overthinker1127

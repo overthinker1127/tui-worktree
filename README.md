@@ -83,12 +83,6 @@ curl -LO "https://github.com/overthinker1127/tui-worktree/releases/download/${ve
 sudo apk add --allow-untrusted "./tui-worktree_${version#v}_x86_64.apk"
 ```
 
-Chocolatey packages are generated as release assets. After the package is published to the Chocolatey Community Repository:
-
-```powershell
-choco install tui-worktree
-```
-
 Or install with Go:
 
 ```bash
@@ -196,7 +190,7 @@ go vet ./...
 Build a local release snapshot:
 
 ```bash
-goreleaser release --snapshot --clean --skip=publish,chocolatey
+goreleaser release --snapshot --clean --skip=publish
 ```
 
 The compatibility command is available at:
