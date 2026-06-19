@@ -9,15 +9,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func (m Model) renderDiffContent(diff string, width int) string {
-	lines := strings.Split(diff, "\n")
-	numbered := numberedDiffLines(lines)
-	for i, line := range numbered {
-		lines[i] = m.renderDiffSegment(m.diffLineStyle(line.text), "", line.text, width, width, shouldHighlightDiffSyntaxLine(line))
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (m Model) renderDiffViewportContent() string {
 	width := m.viewport.Width()
 	height := m.viewport.Height()
@@ -316,7 +307,7 @@ func parseDiffFilePath(line, prefix string) (string, bool) {
 	if !ok || path == "/dev/null" {
 		return "", false
 	}
-	return path, true
+	return strings.TrimSpace(path), true
 }
 
 func trimDiffPathPrefix(path, prefix string) string {
@@ -368,13 +359,6 @@ func lineNumberLabel(line numberedDiffLine) string {
 		return fmt.Sprintf("-%d", line.old)
 	}
 	return ""
-}
-
-func lineNumberText(value int) string {
-	if value <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", value)
 }
 
 func fillStyledLines(lines []string, height int, fill string) []string {

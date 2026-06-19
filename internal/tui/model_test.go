@@ -194,7 +194,7 @@ func TestThemePickerSavesTheme(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
+	_, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 
 	if saved != "kanagawa" {
 		t.Fatalf("saved theme = %q, want kanagawa", saved)
@@ -1246,6 +1246,27 @@ func TestDiffSyntaxHighlightsStaticKeywords(t *testing.T) {
 		if !strings.Contains(ansi.Strip(view), want) {
 			t.Fatalf("diff view missing keyword %q in %q", want, view)
 		}
+	}
+}
+
+func TestDiffSyntaxTrimsHeaderPathWhitespace(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 24
+	model.refreshDiff()
+	model.setDiffContent(strings.Join([]string{
+		"diff --git a/dir space/file name.go b/dir space/file name.go",
+		"--- a/dir space/file name.go\t",
+		"+++ b/dir space/file name.go\t",
+		"@@ -1,1 +1,1 @@",
+		"+func main() {}",
+	}, "\n"))
+
+	view := model.renderDiffViewportContent()
+	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
+
+	if keywordToken == "" || !strings.Contains(view, keywordToken) {
+		t.Fatalf("diff syntax should trim header path whitespace and use keyword token %q in %q", keywordToken, view)
 	}
 }
 

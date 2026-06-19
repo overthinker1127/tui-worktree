@@ -13,7 +13,6 @@ import (
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
-	"github.com/overthinker1127/tui-worktree/internal/tui"
 )
 
 type Options struct {
@@ -24,23 +23,6 @@ type Options struct {
 }
 
 var BuildVersion = "dev"
-
-type Repository interface {
-	Changes(context.Context) ([]gitview.FileChange, error)
-	Diff(context.Context, gitview.FileChange) (string, error)
-}
-
-type WorktreeRepository interface {
-	Worktrees(context.Context) ([]gitview.Worktree, error)
-}
-
-type RootRepository interface {
-	Root(context.Context) (string, error)
-}
-
-type DeleteWorktreeRepository interface {
-	DeleteWorktree(context.Context, gitview.Worktree) error
-}
 
 func ParseArgs(args []string) (Options, error) {
 	fs := flag.NewFlagSet("tui-worktree", flag.ContinueOnError)
@@ -74,147 +56,6 @@ func Version(command string) string {
 		command = "tui-worktree"
 	}
 	return fmt.Sprintf("%s %s\n", command, BuildVersion)
-}
-
-func LoadModel(ctx context.Context, repo Repository, themeName string) tui.Model {
-	return loadModel(ctx, repo, themeName, false, 0, 0)
-}
-
-func loadModel(ctx context.Context, repo Repository, themeName string, transparent bool, width, height int) tui.Model {
-	preset, err := theme.Preset(themeName)
-	themeErr := err
-	if err != nil {
-		preset, _ = theme.Preset("tokyonight")
-	}
-
-	snapshot := loadSnapshot(ctx, repo, "", true)
-	if snapshot.Error == nil {
-		snapshot.Error = themeErr
-	}
-	return tui.NewModel(tui.Config{
-		Context:          ctx,
-		ThemeName:        preset.Name,
-		Theme:            theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: transparent}),
-		Transparent:      transparent,
-		ThemeNames:       theme.Names(),
-		Width:            width,
-		Height:           height,
-		Worktrees:        snapshot.Worktrees,
-		SelectedWorktree: snapshot.SelectedWorktree,
-		Changes:          snapshot.Changes,
-		Diffs:            snapshot.Diffs,
-		Error:            snapshot.Error,
-		LoadDiff: func(ctx context.Context, worktreePath string, change gitview.FileChange) string {
-			return loadDiff(ctx, repositoryAt(repo, worktreePath), change)
-		},
-		Reload: func(ctx context.Context, selectedWorktreePath string) tui.Snapshot {
-			return loadSnapshot(ctx, repo, selectedWorktreePath, false)
-		},
-		DeleteWorktree: func(ctx context.Context, worktree gitview.Worktree) error {
-			if deleteRepo, ok := repo.(DeleteWorktreeRepository); ok {
-				return deleteRepo.DeleteWorktree(ctx, worktree)
-			}
-			return fmt.Errorf("delete worktree is not supported")
-		},
-		SaveTheme: func(name string) error {
-			cfg, _ := LoadConfig()
-			cfg.Theme = name
-			return SaveConfig(cfg)
-		},
-		SaveTransparent: func(transparent bool) error {
-			cfg, _ := LoadConfig()
-			cfg.Transparent = transparent
-			return SaveConfig(cfg)
-		},
-	})
-}
-
-func loadSnapshot(ctx context.Context, repo Repository, selectedWorktreePath string, includeDiff bool) tui.Snapshot {
-	worktrees, err := loadWorktrees(ctx, repo)
-	if err != nil {
-		return tui.Snapshot{Error: err}
-	}
-
-	states := make([]tui.WorktreeState, 0, len(worktrees))
-	selected := 0
-	for i, worktree := range worktrees {
-		if worktree.Path == selectedWorktreePath || selectedWorktreePath == "" && worktree.Current {
-			selected = i
-		}
-		changes, err := repositoryAt(repo, worktree.Path).Changes(ctx)
-		states = append(states, tui.WorktreeState{
-			Worktree: worktree,
-			Changes:  changes,
-			Error:    err,
-		})
-	}
-	if len(states) == 0 {
-		return tui.Snapshot{}
-	}
-
-	changes := states[selected].Changes
-	var diffs map[string]string
-	if includeDiff && len(changes) > 0 {
-		diffs = make(map[string]string, 1)
-		key := states[selected].Worktree.Path + "\x00" + changes[0].Path
-		diffs[key] = loadDiff(ctx, repositoryAt(repo, states[selected].Worktree.Path), changes[0])
-	}
-	return tui.Snapshot{
-		Worktrees:        states,
-		SelectedWorktree: selected,
-		Changes:          changes,
-		Diffs:            diffs,
-		Error:            states[selected].Error,
-	}
-}
-
-func loadWorktrees(ctx context.Context, repo Repository) ([]gitview.Worktree, error) {
-	if worktreeRepo, ok := repo.(WorktreeRepository); ok {
-		return worktreeRepo.Worktrees(ctx)
-	}
-	return []gitview.Worktree{{Path: ".", Branch: "current", Current: true}}, nil
-}
-
-func repositoryAt(repo Repository, worktreePath string) Repository {
-	if worktreePath == "" {
-		return repo
-	}
-	switch typed := repo.(type) {
-	case gitview.Repository:
-		typed.Dir = worktreePath
-		return typed
-	case *gitview.Repository:
-		next := *typed
-		next.Dir = worktreePath
-		return next
-	default:
-		return repo
-	}
-}
-
-func loadDiff(ctx context.Context, repo Repository, change gitview.FileChange) string {
-	diff, err := repo.Diff(ctx, change)
-	if err != nil {
-		return fmt.Sprintf("Could not load diff for %s:\n%s", change.Path, err)
-	}
-	return diff
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func ensureRepository(ctx context.Context, repo RootRepository, dir string) error {
-	if _, err := repo.Root(ctx); err != nil {
-		if dir == "" {
-			dir = "."
-		}
-		return fmt.Errorf("not a git repository: %s", dir)
-	}
-	return nil
 }
 
 func Run(ctx context.Context, opts Options) error {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,32 +73,6 @@ type WorktreeState struct {
 	Changes  []gitview.FileChange
 	Error    error
 }
-
-const (
-	iconFile      = "󰈙"
-	iconWorktree  = "󰙅"
-	iconBranch    = ""
-	iconModified  = ""
-	iconAdded     = ""
-	iconDeleted   = ""
-	iconRenamed   = "󰁕"
-	iconUntracked = ""
-	iconBinary    = ""
-	iconTheme     = ""
-	iconQuit      = "󰩈"
-	iconKey       = "󰌌"
-	iconEdit      = ""
-	iconWrap      = "󰖶"
-	iconNumbers   = "󰎠"
-	iconProtected = ""
-	iconPR        = ""
-	iconMerge     = ""
-	iconStatus    = "󰎟"
-	iconSelected  = "▸"
-	iconToggleOn  = ""
-	iconToggleOff = ""
-	iconWarning   = ""
-)
 
 const autoRefreshInterval = 5 * time.Second
 const toastDuration = 1500 * time.Millisecond
@@ -500,7 +475,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.scrollFocusedList(-1) {
 			return m, nil
 		}
-		break
 	case "l", "right":
 		if m.focusedPane == paneDiff {
 			m.scrollDiffHorizontal(1)
@@ -509,17 +483,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.scrollFocusedList(1) {
 			return m, nil
 		}
-		break
 	case "0":
 		if m.scrollFocusedListToStart() {
 			return m, nil
 		}
-		break
 	case "$":
 		if m.scrollFocusedListToEnd() {
 			return m, nil
 		}
-		break
 	case "g", "home":
 		if m.focusedPane == paneDiff {
 			m.viewport.GotoTop()
@@ -695,11 +666,16 @@ func (m Model) visibleChanges() []gitview.FileChange {
 
 func (m *Model) restoreSelectedFile(selected gitview.FileChange, fallbackIndex int) {
 	changes := m.visibleChanges()
-	if index := changeIndex(changes, selected); index >= 0 {
-		m.selected = index
-	} else {
-		m.selected = min(fallbackIndex, max(0, len(changes)-1))
+	if selected.Path != "" {
+		if index := slices.IndexFunc(changes, func(change gitview.FileChange) bool {
+			return change.Path == selected.Path
+		}); index >= 0 {
+			m.selected = index
+			m.refreshDiff()
+			return
+		}
 	}
+	m.selected = min(fallbackIndex, max(0, len(changes)-1))
 	m.refreshDiff()
 }
 
@@ -975,7 +951,7 @@ func (m *Model) focusPaneShortcut(key string) bool {
 
 func (m *Model) openThemePicker() {
 	m.pickingTheme = true
-	themeIndex := indexOf(m.themeNames, m.themeName)
+	themeIndex := slices.Index(m.themeNames, m.themeName)
 	if themeIndex < 0 {
 		m.themeCursor = 1
 	} else {
@@ -1881,8 +1857,14 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 		m.restoreMergeTargetPicker(mergeSource, mergeTargetPath)
 	}
 	visibleChanges := m.visibleChanges()
-	if index := changeIndex(visibleChanges, selected); index >= 0 {
-		m.selected = index
+	if selected.Path != "" {
+		if index := slices.IndexFunc(visibleChanges, func(change gitview.FileChange) bool {
+			return change.Path == selected.Path
+		}); index >= 0 {
+			m.selected = index
+		} else {
+			m.selected = min(selectedIndex, max(0, len(visibleChanges)-1))
+		}
 	} else {
 		m.selected = min(selectedIndex, max(0, len(visibleChanges)-1))
 	}
@@ -1968,25 +1950,17 @@ func (m *Model) restoreMergeTargetPicker(source gitview.Worktree, selectedTarget
 	}
 	m.mergeSource = refreshedSource
 	m.mergeTargetList = m.newMergeTargetList(items)
-	if index := mergeTargetItemIndex(items, selectedTargetPath); index >= 0 {
-		m.mergeTargetList.Select(index)
+	if selectedTargetPath != "" {
+		if index := slices.IndexFunc(items, func(item list.Item) bool {
+			target, ok := item.(mergeTargetItem)
+			return ok && target.worktree.Path == selectedTargetPath
+		}); index >= 0 {
+			m.mergeTargetList.Select(index)
+		}
 	}
 	m.pickingMergeTarget = true
 	m.focusedPane = paneWorktrees
 	return true
-}
-
-func mergeTargetItemIndex(items []list.Item, path string) int {
-	if path == "" {
-		return -1
-	}
-	for i, item := range items {
-		target, ok := item.(mergeTargetItem)
-		if ok && target.worktree.Path == path {
-			return i
-		}
-	}
-	return -1
 }
 
 func (m Model) refreshedMergeRequest(request MergeRequest) (MergeRequest, bool) {
@@ -3079,10 +3053,6 @@ func middleEllipsizePath(path string, width int) string {
 	return ansi.Cut(path, 0, prefixWidth) + "…" + ansi.Cut(path, lipgloss.Width(path)-suffixWidth, lipgloss.Width(path))
 }
 
-func renderFilteredPath(styles theme.Styles, path, filter string) string {
-	return renderFilteredPathWithBackground(styles, path, filter, styles.Panel.GetBackground())
-}
-
 func renderFilteredPathWithBackground(styles theme.Styles, path, filter string, background color.Color) string {
 	if filter == "" {
 		return listStyleWithBackground(styles.FileItem, background).Render(path)
@@ -3114,20 +3084,6 @@ func statusIcon(status gitview.ChangeStatus) string {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func clamp(value, low, high int) int {
 	if value < low {
 		return low
@@ -3136,27 +3092,6 @@ func clamp(value, low, high int) int {
 		return high
 	}
 	return value
-}
-
-func indexOf(items []string, want string) int {
-	for i, item := range items {
-		if item == want {
-			return i
-		}
-	}
-	return -1
-}
-
-func changeIndex(changes []gitview.FileChange, want gitview.FileChange) int {
-	if want.Path == "" {
-		return -1
-	}
-	for i, change := range changes {
-		if change.Path == want.Path {
-			return i
-		}
-	}
-	return -1
 }
 
 type reloadMsg struct {

@@ -3,9 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+const mergeGitCommandTimeout = 2 * time.Minute
 
 func defaultMergeBranch(ctx context.Context, req MergeRequest) error {
 	if req.Source.Branch == "" || req.Source.Branch == "detached" {
@@ -77,9 +81,16 @@ func runGit(ctx context.Context, dir string, args ...string) error {
 }
 
 func runGitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmdCtx, cancel := context.WithTimeout(ctx, mergeGitCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
+	if err != nil && cmdCtx.Err() != nil {
+		return string(out), fmt.Errorf("%w after %s", cmdCtx.Err(), mergeGitCommandTimeout)
+	}
 	return string(out), err
 }
 
