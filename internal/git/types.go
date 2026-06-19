@@ -11,12 +11,13 @@ const (
 )
 
 type FileChange struct {
-	Path      string
-	OldPath   string
-	Status    ChangeStatus
-	Additions int
-	Deletions int
-	Binary    bool
+	Path        string
+	OldPath     string
+	Status      ChangeStatus
+	Additions   int
+	Deletions   int
+	Binary      bool
+	Fingerprint string
 }
 
 type Worktree struct {

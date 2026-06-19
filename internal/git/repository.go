@@ -3,7 +3,9 @@ package git
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,7 +50,7 @@ func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 	}
 
 	if !r.hasHead(ctx, dir) {
-		return changes, nil
+		return addContentFingerprints(dir, changes), nil
 	}
 
 	numstatOut, err := runner.Run(ctx, dir, "git", "diff", "--numstat", "-z", "HEAD", "--")
@@ -59,7 +61,7 @@ func (r Repository) Changes(ctx context.Context) ([]FileChange, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ApplyLineStats(changes, stats), nil
+	return addContentFingerprints(dir, ApplyLineStats(changes, stats)), nil
 }
 
 func (r Repository) Diff(ctx context.Context, change FileChange) (string, error) {
@@ -150,6 +152,52 @@ func formatUntrackedDiff(filePath string, data []byte) string {
 		out.WriteString("\\ No newline at end of file\n")
 	}
 	return out.String()
+}
+
+func addContentFingerprints(root string, changes []FileChange) []FileChange {
+	out := make([]FileChange, len(changes))
+	copy(out, changes)
+	if root == "" {
+		return out
+	}
+	for i := range out {
+		fingerprint, ok := contentFingerprint(root, out[i])
+		if ok {
+			out[i].Fingerprint = fingerprint
+		}
+	}
+	return out
+}
+
+func contentFingerprint(root string, change FileChange) (string, bool) {
+	if change.Path == "" || change.Status == Deleted {
+		return "", false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	absPath, err := filepath.Abs(filepath.Join(absRoot, filepath.FromSlash(change.Path)))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	file, err := os.Open(absPath)
+	if err != nil {
+		return "", false
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), true
 }
 
 func (r Repository) Root(ctx context.Context) (string, error) {

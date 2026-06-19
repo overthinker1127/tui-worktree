@@ -10,13 +10,13 @@ import (
 )
 
 func (m Model) renderDiffViewportContent() string {
-	width := m.viewport.Width()
-	height := m.viewport.Height()
+	width := m.diff.viewport.Width()
+	height := m.diff.viewport.Height()
 	if width <= 0 || height <= 0 {
 		return ""
 	}
 	textWidth := m.diffTextWidth(width)
-	if m.viewport.SoftWrap {
+	if m.diff.viewport.SoftWrap {
 		return m.renderWrappedDiffViewport(width, textWidth, height)
 	}
 	return m.renderUnwrappedDiffViewport(width, textWidth, height)
@@ -24,7 +24,7 @@ func (m Model) renderDiffViewportContent() string {
 
 func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 	lines := make([]string, 0, height)
-	offset := m.viewport.YOffset()
+	offset := m.diff.viewport.YOffset()
 	seen := 0
 	for _, line := range m.numberedDiffLines() {
 		style := m.diffLineStyle(line.text)
@@ -45,8 +45,8 @@ func (m Model) renderWrappedDiffViewport(width, textWidth, height int) string {
 
 func (m Model) renderUnwrappedDiffViewport(width, textWidth, height int) string {
 	lines := make([]string, 0, height)
-	offset := m.viewport.YOffset()
-	xOffset := m.viewport.XOffset()
+	offset := m.diff.viewport.YOffset()
+	xOffset := m.diff.viewport.XOffset()
 	numbered := m.numberedDiffLines()
 	for i := offset; i < len(numbered) && len(lines) < height; i++ {
 		line := numbered[i]
@@ -206,7 +206,7 @@ func (m Model) diffTextWidth(width int) int {
 }
 
 func (m Model) diffGutterWidth() int {
-	if !m.showLineNumbers {
+	if !m.diff.showLineNumbers {
 		return 0
 	}
 	return 8
@@ -220,7 +220,7 @@ type numberedDiffLine struct {
 }
 
 func (m Model) numberedDiffLines() []numberedDiffLine {
-	return numberedDiffLines(m.diffLines)
+	return numberedDiffLines(m.diff.lines)
 }
 
 func numberedDiffLines(diffLines []string) []numberedDiffLine {
@@ -341,7 +341,7 @@ func parseHunkStart(value string, prefix byte) (int, bool) {
 }
 
 func (m Model) lineNumberGutter(line numberedDiffLine, continuation bool) string {
-	if !m.showLineNumbers {
+	if !m.diff.showLineNumbers {
 		return ""
 	}
 	style := m.styles.Muted.Background(m.styles.Diff.GetBackground())

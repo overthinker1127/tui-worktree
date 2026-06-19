@@ -44,6 +44,54 @@ func TestRepositoryWithRealGitWorktree(t *testing.T) {
 	if changes[1].Path != "scratch.txt" || changes[1].Status != Untracked {
 		t.Fatalf("scratch change = %#v, want untracked", changes[1])
 	}
+	for _, change := range changes {
+		if change.Fingerprint == "" {
+			t.Fatalf("change %s fingerprint is empty: %#v", change.Path, change)
+		}
+	}
+}
+
+func TestRepositoryChangesFingerprintChangesWhenContentChanges(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte("same\nold\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "init")
+
+	if err := os.WriteFile(path, []byte("same\none\n"), 0o644); err != nil {
+		t.Fatalf("modify README first: %v", err)
+	}
+	repo := Repository{Dir: dir}
+	first, err := repo.Changes(context.Background())
+	if err != nil {
+		t.Fatalf("Changes() first error = %v", err)
+	}
+	if len(first) != 1 || first[0].Fingerprint == "" {
+		t.Fatalf("first Changes() = %#v, want fingerprint", first)
+	}
+
+	if err := os.WriteFile(path, []byte("same\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("modify README second: %v", err)
+	}
+	second, err := repo.Changes(context.Background())
+	if err != nil {
+		t.Fatalf("Changes() second error = %v", err)
+	}
+	if len(second) != 1 || second[0].Fingerprint == "" {
+		t.Fatalf("second Changes() = %#v, want fingerprint", second)
+	}
+	if first[0].Additions != second[0].Additions || first[0].Deletions != second[0].Deletions {
+		t.Fatalf("line stats changed unexpectedly: first=%#v second=%#v", first[0], second[0])
+	}
+	if first[0].Fingerprint == second[0].Fingerprint {
+		t.Fatalf("fingerprint did not change: first=%#v second=%#v", first[0], second[0])
+	}
 }
 
 func TestRepositoryHandlesSpacesAndPureRename(t *testing.T) {

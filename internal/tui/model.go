@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/overthinker1127/tui-worktree/internal/command"
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
 )
@@ -47,18 +48,9 @@ type Config struct {
 	MergeBranch       func(context.Context, MergeRequest) error
 }
 
-type PullRequestRequest struct {
-	CLI         string
-	WorktreeDir string
-	Branch      string
-	Title       string
-	Body        string
-}
+type PullRequestRequest = command.PullRequestRequest
 
-type MergeRequest struct {
-	Source gitview.Worktree
-	Target gitview.Worktree
-}
+type MergeRequest = command.MergeRequest
 
 type Snapshot struct {
 	Worktrees        []WorktreeState
@@ -98,135 +90,88 @@ type toastState struct {
 	Kind    toastKind
 }
 
-type prFormFocus int
+type prFocus int
 
 const (
-	prFormTitle prFormFocus = iota
-	prFormBody
+	prTitle prFocus = iota
+	prBody
 )
 
 type Model struct {
-	styles              theme.Styles
-	context             context.Context
-	themeName           string
-	transparent         bool
-	themeNames          []string
-	themeCursor         int
-	worktrees           []WorktreeState
-	selectedWorktree    int
-	changes             []gitview.FileChange
-	diffs               map[string]string
-	diffLines           []string
-	diffContent         string
-	diffContentKey      string
-	selected            int
-	worktreeScrollX     int
-	fileScrollX         int
-	fileFilter          string
-	filteringFiles      bool
-	mergeConfirmScrollX int
-	showLineNumbers     bool
-	revision            int
-	refreshGeneration   int
-	refreshInFlight     bool
-	width               int
-	height              int
-	err                 error
-	toast               toastState
-	toastID             int
-	pickingTheme        bool
-	confirmDelete       bool
-	creatingPR          bool
-	pickingMergeTarget  bool
-	confirmMerge        bool
-	pickingOverlap      bool
-	comparingOverlap    bool
-	submittingPR        bool
-	deletingWorktree    bool
-	mergingBranch       bool
-	overlapCursor       int
-	overlapTargets      []overlapTarget
-	compareTarget       overlapTarget
-	compareDiff         string
-	compareLoading      bool
-	compareYOffset      int
-	compareXOffset      int
-	compareGeneration   int
-	prTitle             textinput.Model
-	prBody              textarea.Model
-	prFormFocus         prFormFocus
-	mergeTargetList     list.Model
-	mergeSource         gitview.Worktree
-	mergeRequest        MergeRequest
-	forgeCLI            string
-	focusedPane         focusedPane
-	loadDiff            func(context.Context, string, gitview.FileChange) string
-	deleteWorktree      func(context.Context, gitview.Worktree) error
-	reload              func(context.Context, string) Snapshot
-	saveTheme           func(string) error
-	saveTransparent     func(bool) error
-	findForgeCLI        func() (string, bool)
-	createPullRequest   func(context.Context, PullRequestRequest) error
-	mergeBranch         func(context.Context, MergeRequest) error
-	viewport            viewport.Model
-}
-
-type overlapTarget struct {
-	Worktree gitview.Worktree
-	Change   gitview.FileChange
+	styles            theme.Styles
+	context           context.Context
+	changes           []gitview.FileChange
+	diffs             map[string]string
+	selected          int
+	fileScrollX       int
+	fileFilter        string
+	revision          int
+	refreshGeneration int
+	refreshInFlight   bool
+	width             int
+	height            int
+	err               error
+	toast             toastState
+	toastID           int
+	mode              uiMode
+	deletingWorktree  bool
+	focusedPane       focusedPane
+	diff              diffView
+	pr                pr
+	merge             merge
+	overlap           overlap
+	themePicker       themePicker
+	worktreeList
+	deps dependencies
 }
 
 func NewModel(cfg Config) Model {
 	vp := viewport.New()
 	vp.SoftWrap = true
 	m := Model{
-		styles:            cfg.Theme,
-		context:           cfg.Context,
-		themeName:         cfg.ThemeName,
-		transparent:       cfg.Transparent,
-		themeNames:        cfg.ThemeNames,
-		worktrees:         cfg.Worktrees,
-		selectedWorktree:  cfg.SelectedWorktree,
-		changes:           cfg.Changes,
-		diffs:             cfg.Diffs,
-		err:               cfg.Error,
-		loadDiff:          cfg.LoadDiff,
-		deleteWorktree:    cfg.DeleteWorktree,
-		reload:            cfg.Reload,
-		saveTheme:         cfg.SaveTheme,
-		saveTransparent:   cfg.SaveTransparent,
-		findForgeCLI:      cfg.FindForgeCLI,
-		createPullRequest: cfg.CreatePullRequest,
-		mergeBranch:       cfg.MergeBranch,
-		viewport:          vp,
-		width:             initialDimension(cfg.Width, 100),
-		height:            initialDimension(cfg.Height, 30),
-		showLineNumbers:   true,
-		focusedPane:       paneFiles,
+		styles:       cfg.Theme,
+		context:      cfg.Context,
+		themePicker:  themePicker{name: cfg.ThemeName, transparent: cfg.Transparent, names: cfg.ThemeNames},
+		worktreeList: worktreeList{worktrees: cfg.Worktrees, selectedWorktree: cfg.SelectedWorktree},
+		changes:      cfg.Changes,
+		diffs:        cfg.Diffs,
+		err:          cfg.Error,
+		deps: dependencies{
+			loadDiff:          cfg.LoadDiff,
+			deleteWorktree:    cfg.DeleteWorktree,
+			reload:            cfg.Reload,
+			saveTheme:         cfg.SaveTheme,
+			saveTransparent:   cfg.SaveTransparent,
+			findForgeCLI:      cfg.FindForgeCLI,
+			createPullRequest: cfg.CreatePullRequest,
+			mergeBranch:       cfg.MergeBranch,
+		},
+		width:       initialDimension(cfg.Width, 100),
+		height:      initialDimension(cfg.Height, 30),
+		focusedPane: paneFiles,
+		diff: diffView{
+			viewport:        vp,
+			showLineNumbers: true,
+		},
 	}
-	if m.themeName == "" {
-		m.themeName = "tokyonight"
-	}
+	m.themePicker.normalize()
 	if m.context == nil {
 		m.context = context.Background()
 	}
-	if m.findForgeCLI == nil {
-		m.findForgeCLI = defaultFindForgeCLI
+	if m.deps.findForgeCLI == nil {
+		m.deps.findForgeCLI = command.FindForgeCLI
 	}
-	if m.createPullRequest == nil {
-		m.createPullRequest = defaultCreatePullRequest
+	if m.deps.createPullRequest == nil {
+		m.deps.createPullRequest = command.CreatePullRequest
 	}
-	if m.mergeBranch == nil {
-		m.mergeBranch = defaultMergeBranch
-	}
-	if len(m.themeNames) == 0 {
-		m.themeNames = theme.Names()
+	if m.deps.mergeBranch == nil {
+		m.deps.mergeBranch = command.MergeBranch
 	}
 	if m.diffs == nil {
 		m.diffs = map[string]string{}
 	}
 	m.normalizeWorktrees()
-	m.resetPRForm()
+	m.pr.reset(m.prTextInputStyles(prInputWidth), m.prTextareaStyles(prInputWidth, prBodyHeight))
 	if cfg.Diff != "" && len(cfg.Changes) > 0 {
 		m.diffs[m.diffKey(cfg.Changes[0])] = cfg.Diff
 	}
@@ -277,36 +222,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pullRequestFinishedMsg:
-		m.submittingPR = false
+		m.pr.submitting = false
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("PR/MR create failed: %s", msg.err))
 		}
-		m.creatingPR = false
+		m.mode = modeNormal
 		return m, m.showSuccessToast("PR/MR created")
 	case mergeBranchFinishedMsg:
-		m.mergingBranch = false
-		m.confirmMerge = false
-		m.mergeRequest = MergeRequest{}
-		m.mergeConfirmScrollX = 0
+		m.merge.finish()
+		m.mode = modeNormal
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("merge failed: %s", msg.err))
 		}
-		m.pickingMergeTarget = false
 		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("merged %s into %s", worktreeLabel(msg.request.Source), worktreeLabel(msg.request.Target)))}
-		if m.reload != nil {
+		if m.deps.reload != nil {
 			cmds = append(cmds, m.startReloadCmd(msg.request.Target.Path))
 		}
 		return m, tea.Batch(cmds...)
 	case deleteWorktreeFinishedMsg:
 		m.deletingWorktree = false
-		m.confirmDelete = false
+		m.mode = modeNormal
 		if msg.err != nil {
 			return m, m.showErrorToast(fmt.Sprintf("delete failed: %s", msg.err))
 		}
 		m.removeWorktree(msg.worktree.Path)
 		cmds := []tea.Cmd{m.showSuccessToast(fmt.Sprintf("deleted %s", worktreeLabel(msg.worktree)))}
-		if m.reload != nil {
-			cmds = append(cmds, m.startReloadCmd(m.SelectedWorktree().Path))
+		if m.deps.reload != nil {
+			cmds = append(cmds, m.startReloadCmd(m.selectedWorktreeValue().Path))
 		}
 		return m, tea.Batch(cmds...)
 	case diffLoadedMsg:
@@ -316,33 +258,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.path != "" {
 			key := msg.worktree + "\x00" + msg.path
 			m.diffs[key] = msg.diff
-			if selected := m.Selected(); selected.Path == msg.path && m.SelectedWorktree().Path == msg.worktree {
+			if selected := m.Selected(); selected.Path == msg.path && m.selectedWorktreeValue().Path == msg.worktree {
 				m.refreshDiff()
-				m.viewport.SetYOffset(msg.diffYOffset)
+				m.diff.viewport.SetYOffset(msg.diffYOffset)
 			}
 		}
 		return m, nil
 	case compareDiffLoadedMsg:
-		if msg.generation != m.compareGeneration || !m.comparingOverlap {
+		if msg.generation != m.overlap.compareGeneration || m.mode != modeOverlapCompare {
 			return m, nil
 		}
-		if m.compareTarget.Worktree.Path != msg.worktree || m.compareTarget.Change.Path != msg.path {
+		if m.overlap.compareTarget.Worktree.Path != msg.worktree || m.overlap.compareTarget.Change.Path != msg.path {
 			return m, nil
 		}
-		m.compareDiff = msg.diff
-		m.compareLoading = false
-		m.clampCompareOffsets()
+		m.overlap.compareDiff = msg.diff
+		m.overlap.compareLoading = false
+		m.overlap.clampCompareOffsets(m.maxCompareYOffset(), m.maxCompareXOffset(), m.diff.viewport.SoftWrap)
 		return m, nil
 	case autoRefreshMsg:
 		m.revision++
-		if m.reload == nil {
+		if m.deps.reload == nil {
 			return m, m.autoRefreshCmd()
 		}
 		if m.refreshInFlight {
 			return m, m.autoRefreshCmd()
 		}
 		return m, tea.Batch(
-			m.startReloadCmd(m.SelectedWorktree().Path),
+			m.startReloadCmd(m.selectedWorktreeValue().Path),
 			m.autoRefreshCmd(),
 		)
 	case tea.WindowSizeMsg:
@@ -356,13 +298,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 	case tea.MouseWheelMsg:
-		if m.comparingOverlap {
+		switch m.mode {
+		case modeOverlapCompare:
 			return m.handleOverlapCompareWheel(msg.Mouse())
-		}
-		if m.pickingTheme {
+		case modeThemePicker:
 			return m.handleThemeWheel(msg.Mouse())
 		}
-		if m.filteringFiles || m.pickingOverlap || m.creatingPR || m.confirmDelete || m.confirmMerge || m.pickingMergeTarget {
+		if m.mode.blocksDiffWheel() {
 			return m, nil
 		}
 		return m.handleDiffWheel(msg)
@@ -370,33 +312,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.diff.viewport, cmd = m.diff.viewport.Update(msg)
 	return m, cmd
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.filteringFiles {
+	switch m.mode {
+	case modeFileFilter:
 		return m.handleFileFilterKey(msg)
-	}
-	if m.comparingOverlap {
+	case modeOverlapCompare:
 		return m.handleOverlapCompareKey(msg)
-	}
-	if m.pickingOverlap {
+	case modeOverlapPicker:
 		return m.handleOverlapPickerKey(msg)
-	}
-	if m.creatingPR {
+	case modePRForm:
 		return m.handlePRFormKey(msg)
-	}
-	if m.confirmDelete {
+	case modeDeleteConfirm:
 		return m.handleDeleteConfirmKey(msg)
-	}
-	if m.confirmMerge {
+	case modeMergeConfirm:
 		return m.handleMergeConfirmKey(msg)
-	}
-	if m.pickingTheme {
+	case modeThemePicker:
 		return m.handleThemeKey(msg)
-	}
-	if m.pickingMergeTarget {
+	case modeMergeTarget:
 		return m.handleMergeTargetKey(msg)
 	}
 	if m.focusPaneShortcut(msg.String()) {
@@ -409,7 +345,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.fileFilter != "" {
 			selected := m.Selected()
 			m.fileFilter = ""
-			m.filteringFiles = false
+			m.mode = modeNormal
 			m.restoreSelectedFile(selected, m.selected)
 			return m, m.ensureSelectedDiffCmd()
 		}
@@ -422,7 +358,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		return m, m.toggleLineNumbers()
 	case "/":
-		m.filteringFiles = true
+		m.mode = modeFileFilter
 		m.focusedPane = paneFiles
 		return m, nil
 	case "e":
@@ -496,7 +432,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "g", "home":
 		if m.focusedPane == paneDiff {
-			m.viewport.GotoTop()
+			m.diff.viewport.GotoTop()
 			return m, nil
 		}
 		m.focusedPane = paneFiles
@@ -505,7 +441,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.ensureSelectedDiffCmd()
 	case "G", "end":
 		if m.focusedPane == paneDiff {
-			m.viewport.GotoBottom()
+			m.diff.viewport.GotoBottom()
 			return m, nil
 		}
 		changes := m.visibleChanges()
@@ -517,7 +453,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.diff.viewport, cmd = m.diff.viewport.Update(msg)
 	return m, cmd
 }
 
@@ -533,22 +469,23 @@ func (m Model) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
 
 	footer := m.renderFooter()
-	if m.pickingTheme {
+	switch m.mode {
+	case modeThemePicker:
 		body = m.renderOverlay(body, m.renderThemePicker())
-	} else if m.filteringFiles {
+	case modeFileFilter:
 		body = m.renderOverlay(body, m.renderFileFilter())
-	} else if m.pickingOverlap {
+	case modeOverlapPicker:
 		body = m.renderOverlay(body, m.renderOverlapPicker())
-	} else if m.confirmDelete {
+	case modeDeleteConfirm:
 		body = m.renderOverlay(body, m.renderDeleteConfirm())
-	} else if m.creatingPR {
+	case modePRForm:
 		body = m.renderOverlay(body, m.renderPRForm())
-	} else if m.confirmMerge {
+	case modeMergeConfirm:
 		body = m.renderOverlay(body, m.renderMergeConfirm())
-	} else if m.pickingMergeTarget {
+	case modeMergeTarget:
 		body = m.renderOverlay(body, m.renderMergeTargetPicker())
 	}
-	if m.comparingOverlap {
+	if m.mode == modeOverlapCompare {
 		body = m.renderOverlapCompare(body)
 	}
 	body = m.renderToast(body)
@@ -682,13 +619,6 @@ func (m *Model) restoreSelectedFile(selected gitview.FileChange, fallbackIndex i
 	m.refreshDiff()
 }
 
-func (m Model) SelectedWorktree() gitview.Worktree {
-	if len(m.worktrees) == 0 || m.selectedWorktree < 0 || m.selectedWorktree >= len(m.worktrees) {
-		return gitview.Worktree{}
-	}
-	return m.worktrees[m.selectedWorktree].Worktree
-}
-
 func (m *Model) moveSelection(delta int) {
 	changes := m.visibleChanges()
 	if len(changes) == 0 {
@@ -706,18 +636,12 @@ func (m *Model) moveSelection(delta int) {
 }
 
 func (m *Model) moveWorktree(delta int) {
-	if len(m.worktrees) == 0 {
+	state, ok := m.move(delta)
+	if !ok {
 		return
 	}
 	m.focusedPane = paneWorktrees
-	m.selectedWorktree += delta
-	if m.selectedWorktree < 0 {
-		m.selectedWorktree = len(m.worktrees) - 1
-	}
-	if m.selectedWorktree >= len(m.worktrees) {
-		m.selectedWorktree = 0
-	}
-	m.selectWorktree(m.selectedWorktree)
+	m.applySelectedWorktree(state)
 }
 
 func (m *Model) focusPreviousPane() {
@@ -730,19 +654,19 @@ func (m *Model) focusPreviousPane() {
 }
 
 func (m *Model) toggleDiffWrap() tea.Cmd {
-	if m.viewport.SoftWrap {
-		m.viewport.SoftWrap = false
+	if m.diff.viewport.SoftWrap {
+		m.diff.viewport.SoftWrap = false
 		return m.showToast("diff wrap off")
 	}
-	m.viewport.SetXOffset(0)
-	m.viewport.SoftWrap = true
+	m.diff.viewport.SetXOffset(0)
+	m.diff.viewport.SoftWrap = true
 	return m.showToast("diff wrap on")
 }
 
 func (m *Model) toggleLineNumbers() tea.Cmd {
-	m.showLineNumbers = !m.showLineNumbers
-	m.viewport.SetXOffset(clamp(m.viewport.XOffset(), 0, m.maxDiffXOffset()))
-	if m.showLineNumbers {
+	m.diff.showLineNumbers = !m.diff.showLineNumbers
+	m.diff.viewport.SetXOffset(clamp(m.diff.viewport.XOffset(), 0, m.maxDiffXOffset()))
+	if m.diff.showLineNumbers {
 		return m.showToast("line numbers on")
 	}
 	return m.showToast("line numbers off")
@@ -757,7 +681,7 @@ func (m *Model) openSelectedFileInEditor() tea.Cmd {
 	if editor == "" {
 		editor = "vi"
 	}
-	worktreePath := m.SelectedWorktree().Path
+	worktreePath := m.selectedWorktreeValue().Path
 	if worktreePath == "" {
 		worktreePath = "."
 	}
@@ -771,47 +695,26 @@ func (m *Model) openSelectedFileInEditor() tea.Cmd {
 }
 
 func (m *Model) scrollDiffHorizontal(delta int) {
-	if m.viewport.SoftWrap {
+	if m.diff.viewport.SoftWrap {
 		return
 	}
 	step := 6
-	m.viewport.SetXOffset(clamp(m.viewport.XOffset()+delta*step, 0, m.maxDiffXOffset()))
-}
-
-func (m *Model) scrollOverlapCompare(delta int) {
-	m.compareYOffset = clamp(m.compareYOffset+delta, 0, m.maxCompareYOffset())
-}
-
-func (m *Model) scrollOverlapCompareHorizontal(delta int) {
-	if m.viewport.SoftWrap {
-		return
-	}
-	step := 6
-	m.compareXOffset = clamp(m.compareXOffset+delta*step, 0, m.maxCompareXOffset())
-}
-
-func (m *Model) clampCompareOffsets() {
-	m.compareYOffset = clamp(m.compareYOffset, 0, m.maxCompareYOffset())
-	if m.viewport.SoftWrap {
-		m.compareXOffset = 0
-		return
-	}
-	m.compareXOffset = clamp(m.compareXOffset, 0, m.maxCompareXOffset())
+	m.diff.viewport.SetXOffset(clamp(m.diff.viewport.XOffset()+delta*step, 0, m.maxDiffXOffset()))
 }
 
 func (m *Model) scrollMergeConfirmHorizontal(delta int) {
 	step := 6
 	contentWidth := m.mergeConfirmContentWidth(m.mergeConfirmWidth())
-	m.mergeConfirmScrollX = clamp(m.mergeConfirmScrollX+delta*step, 0, m.maxMergeConfirmScrollX(contentWidth))
+	m.merge.confirmScrollX = clamp(m.merge.confirmScrollX+delta*step, 0, m.maxMergeConfirmScrollX(contentWidth))
 }
 
 func (m Model) maxDiffXOffset() int {
-	return max(0, m.maxDiffLineWidth()-m.diffTextWidth(m.viewport.Width()))
+	return max(0, m.maxDiffLineWidth()-m.diffTextWidth(m.diff.viewport.Width()))
 }
 
 func (m Model) maxDiffLineWidth() int {
 	width := 0
-	for _, line := range m.diffLines {
+	for _, line := range m.diff.lines {
 		width = max(width, lipgloss.Width(line))
 	}
 	return width
@@ -819,13 +722,13 @@ func (m Model) maxDiffLineWidth() int {
 
 func (m Model) maxCompareYOffset() int {
 	_, height := m.compareColumnDimensions()
-	return max(0, max(m.diffDisplayLineCount(m.selectedDiff()), m.diffDisplayLineCount(m.compareDiff))-height)
+	return max(0, max(m.diffDisplayLineCount(m.selectedDiff()), m.diffDisplayLineCount(m.overlap.compareDiff))-height)
 }
 
 func (m Model) maxCompareXOffset() int {
 	width, _ := m.compareColumnDimensions()
 	textWidth := m.diffTextWidth(width)
-	return max(0, max(m.maxDiffTextLineWidth(m.selectedDiff()), m.maxDiffTextLineWidth(m.compareDiff))-textWidth)
+	return max(0, max(m.maxDiffTextLineWidth(m.selectedDiff()), m.maxDiffTextLineWidth(m.overlap.compareDiff))-textWidth)
 }
 
 func (m Model) compareColumnDimensions() (int, int) {
@@ -842,7 +745,7 @@ func (m Model) diffDisplayLineCount(diff string) int {
 		return 1
 	}
 	numbered := numberedDiffLines(strings.Split(diff, "\n"))
-	if !m.viewport.SoftWrap {
+	if !m.diff.viewport.SoftWrap {
 		return len(numbered)
 	}
 	width, _ := m.compareColumnDimensions()
@@ -953,42 +856,37 @@ func (m *Model) focusPaneShortcut(key string) bool {
 }
 
 func (m *Model) openThemePicker() {
-	m.pickingTheme = true
-	themeIndex := slices.Index(m.themeNames, m.themeName)
-	if themeIndex < 0 {
-		m.themeCursor = 1
-	} else {
-		m.themeCursor = themeIndex + 1
-	}
+	m.mode = modeThemePicker
+	m.themePicker.open()
 }
 
 func (m *Model) openDeleteConfirm() tea.Cmd {
-	worktree := m.SelectedWorktree()
+	worktree := m.selectedWorktreeValue()
 	if worktree.Path == "" {
 		return m.showErrorToast("no worktree selected")
 	}
 	if worktree.Protected || gitview.IsProtectedBranch(worktree.Branch) {
 		return m.showErrorToast(fmt.Sprintf("protected branch %s cannot be deleted", worktreeLabel(worktree)))
 	}
-	m.confirmDelete = true
+	m.mode = modeDeleteConfirm
 	m.focusedPane = paneWorktrees
 	return nil
 }
 
 func (m *Model) openPRForm() tea.Cmd {
-	cli, ok := m.findForgeCLI()
+	cli, ok := m.deps.findForgeCLI()
 	if !ok {
 		return m.showErrorToast("Forge CLI missing: install gh or glab")
 	}
-	m.forgeCLI = cli
-	m.creatingPR = true
+	m.pr.forgeCLI = cli
+	m.mode = modePRForm
 	m.focusedPane = paneWorktrees
-	m.resetPRForm()
+	m.pr.reset(m.prTextInputStyles(prInputWidth), m.prTextareaStyles(prInputWidth, prBodyHeight))
 	return nil
 }
 
 func (m *Model) openMergeTargetPicker() tea.Cmd {
-	source := m.SelectedWorktree()
+	source := m.selectedWorktreeValue()
 	if source.Path == "" {
 		return m.showErrorToast("no worktree selected")
 	}
@@ -1002,10 +900,8 @@ func (m *Model) openMergeTargetPicker() tea.Cmd {
 	if len(items) == 0 {
 		return m.showErrorToast("no merge target branch")
 	}
-	m.mergeSource = source
-	m.mergeTargetList = m.newMergeTargetList(items)
-	m.mergeTargetList.Select(0)
-	m.pickingMergeTarget = true
+	m.merge.openTargetPicker(source, m.newMergeTargetList(items))
+	m.mode = modeMergeTarget
 	m.focusedPane = paneWorktrees
 	return nil
 }
@@ -1015,10 +911,8 @@ func (m *Model) openOverlapPicker() tea.Cmd {
 	if len(targets) == 0 {
 		return m.showToast("no overlaps for selected file")
 	}
-	m.overlapTargets = targets
-	m.overlapCursor = 0
-	m.pickingOverlap = true
-	m.comparingOverlap = false
+	m.overlap.openPicker(targets)
+	m.mode = modeOverlapPicker
 	return nil
 }
 
@@ -1026,7 +920,7 @@ func (m Model) overlapTargetsFor(change gitview.FileChange) []overlapTarget {
 	if change.Path == "" {
 		return nil
 	}
-	selectedWorktreePath := m.SelectedWorktree().Path
+	selectedWorktreePath := m.selectedWorktreeValue().Path
 	paths := changePathSet(change)
 	targets := make([]overlapTarget, 0)
 	for _, state := range m.worktrees {
@@ -1076,19 +970,14 @@ func (m Model) handleOverlapPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc":
-		m.pickingOverlap = false
-		m.overlapTargets = nil
-		m.overlapCursor = 0
+		m.mode = modeNormal
+		m.overlap.closePicker()
 		return m, nil
 	case "j", "down":
-		if m.overlapCursor < len(m.overlapTargets)-1 {
-			m.overlapCursor++
-		}
+		m.overlap.moveCursor(1)
 		return m, nil
 	case "k", "up":
-		if m.overlapCursor > 0 {
-			m.overlapCursor--
-		}
+		m.overlap.moveCursor(-1)
 		return m, nil
 	case "enter":
 		return m, m.openOverlapCompare()
@@ -1097,25 +986,19 @@ func (m Model) handleOverlapPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *Model) openOverlapCompare() tea.Cmd {
-	if len(m.overlapTargets) == 0 || m.overlapCursor < 0 || m.overlapCursor >= len(m.overlapTargets) {
+	target, ok := m.overlap.openCompare()
+	if !ok {
 		return m.showToast("no overlap selected")
 	}
-	m.compareTarget = m.overlapTargets[m.overlapCursor]
-	m.compareDiff = ""
-	m.compareLoading = true
-	m.compareYOffset = 0
-	m.compareXOffset = 0
-	m.compareGeneration++
-	m.pickingOverlap = false
-	m.comparingOverlap = true
-	return m.compareDiffCmd(m.compareTarget)
+	m.mode = modeOverlapCompare
+	return m.compareDiffCmd(target)
 }
 
 func (m Model) compareDiffCmd(target overlapTarget) tea.Cmd {
-	if m.loadDiff == nil {
+	if m.deps.loadDiff == nil {
 		return func() tea.Msg {
 			return compareDiffLoadedMsg{
-				generation: m.compareGeneration,
+				generation: m.overlap.compareGeneration,
 				worktree:   target.Worktree.Path,
 				path:       target.Change.Path,
 				diff:       fmt.Sprintf("No diff loader configured for %s", target.Change.Path),
@@ -1124,10 +1007,10 @@ func (m Model) compareDiffCmd(target overlapTarget) tea.Cmd {
 	}
 	return func() tea.Msg {
 		return compareDiffLoadedMsg{
-			generation: m.compareGeneration,
+			generation: m.overlap.compareGeneration,
 			worktree:   target.Worktree.Path,
 			path:       target.Change.Path,
-			diff:       m.loadDiff(m.context, target.Worktree.Path, target.Change),
+			diff:       m.deps.loadDiff(m.context, target.Worktree.Path, target.Change),
 		}
 	}
 }
@@ -1137,53 +1020,52 @@ func (m Model) handleOverlapCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc":
-		m.comparingOverlap = false
-		m.compareTarget = overlapTarget{}
-		m.compareDiff = ""
-		m.compareLoading = false
-		m.compareYOffset = 0
-		m.compareXOffset = 0
-		m.compareGeneration++
+		m.mode = modeNormal
+		m.overlap.closeCompare()
 		return m, nil
 	case "w":
 		cmd := m.toggleDiffWrap()
-		m.clampCompareOffsets()
+		m.overlap.clampCompareOffsets(m.maxCompareYOffset(), m.maxCompareXOffset(), m.diff.viewport.SoftWrap)
 		return m, cmd
 	case "n":
 		cmd := m.toggleLineNumbers()
-		m.clampCompareOffsets()
+		m.overlap.clampCompareOffsets(m.maxCompareYOffset(), m.maxCompareXOffset(), m.diff.viewport.SoftWrap)
 		return m, cmd
 	case "j", "down":
-		m.scrollOverlapCompare(1)
+		m.overlap.scrollCompare(1, m.maxCompareYOffset())
 	case "k", "up":
-		m.scrollOverlapCompare(-1)
+		m.overlap.scrollCompare(-1, m.maxCompareYOffset())
 	case "g", "home":
-		m.compareYOffset = 0
+		m.overlap.compareYOffset = 0
 	case "G", "end":
-		m.compareYOffset = m.maxCompareYOffset()
+		m.overlap.compareYOffset = m.maxCompareYOffset()
 	case "h", "left":
-		m.scrollOverlapCompareHorizontal(-1)
+		if !m.diff.viewport.SoftWrap {
+			m.overlap.scrollCompareHorizontal(-1, m.maxCompareXOffset())
+		}
 	case "l", "right":
-		m.scrollOverlapCompareHorizontal(1)
+		if !m.diff.viewport.SoftWrap {
+			m.overlap.scrollCompareHorizontal(1, m.maxCompareXOffset())
+		}
 	case "0":
-		if !m.viewport.SoftWrap {
-			m.compareXOffset = 0
+		if !m.diff.viewport.SoftWrap {
+			m.overlap.compareXOffset = 0
 		}
 	case "$":
-		if !m.viewport.SoftWrap {
-			m.compareXOffset = m.maxCompareXOffset()
+		if !m.diff.viewport.SoftWrap {
+			m.overlap.compareXOffset = m.maxCompareXOffset()
 		}
 	}
-	m.clampCompareOffsets()
+	m.overlap.clampCompareOffsets(m.maxCompareYOffset(), m.maxCompareXOffset(), m.diff.viewport.SoftWrap)
 	return m, nil
 }
 
 func (m Model) handleOverlapCompareWheel(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 	switch mouse.Button {
 	case tea.MouseWheelUp:
-		m.scrollOverlapCompare(-3)
+		m.overlap.scrollCompare(-3, m.maxCompareYOffset())
 	case tea.MouseWheelDown:
-		m.scrollOverlapCompare(3)
+		m.overlap.scrollCompare(3, m.maxCompareYOffset())
 	}
 	return m, nil
 }
@@ -1196,7 +1078,7 @@ func (m Model) handleDiffWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	m.focusedPane = paneDiff
 	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.diff.viewport, cmd = m.diff.viewport.Update(msg)
 	return m, cmd
 }
 
@@ -1304,26 +1186,6 @@ func (d mergeTargetDelegate) Render(w io.Writer, m list.Model, index int, item l
 	_, _ = fmt.Fprintf(w, "%s\n%s", title, desc)
 }
 
-func (m *Model) resetPRForm() {
-	m.prTitle = textinput.New()
-	m.prTitle.Prompt = ""
-	m.prTitle.Placeholder = "PR title"
-	m.prTitle.SetWidth(48)
-	m.prTitle.SetStyles(m.prTextInputStyles(48))
-	m.prTitle.Focus()
-
-	m.prBody = textarea.New()
-	m.prBody.Prompt = ""
-	m.prBody.Placeholder = "PR description"
-	m.prBody.ShowLineNumbers = false
-	m.prBody.SetWidth(48)
-	m.prBody.SetHeight(5)
-	m.prBody.SetStyles(m.prTextareaStyles(48, 5))
-	m.prBody.Blur()
-
-	m.prFormFocus = prFormTitle
-}
-
 func (m Model) prTextInputStyles(width int) textinput.Styles {
 	base := m.prInputStyle(m.styles.Diff)
 	placeholder := m.prInputStyle(m.styles.Muted)
@@ -1399,7 +1261,7 @@ func (m Model) prInputStyle(style lipgloss.Style) lipgloss.Style {
 
 func (m Model) handlePRFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+o" || (msg.Code == 'o' && msg.Mod == tea.ModCtrl) {
-		if m.submittingPR {
+		if m.pr.submitting {
 			return m, nil
 		}
 		cmd := m.createPullRequestCmd()
@@ -1409,64 +1271,25 @@ func (m Model) handlePRFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.creatingPR = false
+		m.mode = modeNormal
 		return m, nil
 	case "tab", "shift+tab":
-		m.togglePRFormFocus()
+		m.pr.toggleFocus()
 		return m, nil
 	}
 
-	var cmd tea.Cmd
-	if m.prFormFocus == prFormTitle {
-		m.prTitle, cmd = m.prTitle.Update(msg)
-		return m, cmd
-	}
-	m.prBody, cmd = m.prBody.Update(msg)
-	return m, cmd
-}
-
-func (m *Model) togglePRFormFocus() {
-	if m.prFormFocus == prFormTitle {
-		m.prTitle.Blur()
-		m.prBody.Focus()
-		m.prFormFocus = prFormBody
-		return
-	}
-	m.prBody.Blur()
-	m.prTitle.Focus()
-	m.prFormFocus = prFormTitle
+	return m, m.pr.updateInput(msg)
 }
 
 func (m *Model) createPullRequestCmd() tea.Cmd {
-	req, err := m.pullRequestRequest()
+	req, err := m.pr.request(m.selectedWorktreeValue())
 	if err != nil {
 		return m.showErrorToast(err.Error())
 	}
-	m.submittingPR = true
+	m.pr.submitting = true
 	return func() tea.Msg {
-		return pullRequestFinishedMsg{err: m.createPullRequest(m.context, req)}
+		return pullRequestFinishedMsg{err: m.deps.createPullRequest(m.context, req)}
 	}
-}
-
-func (m Model) pullRequestRequest() (PullRequestRequest, error) {
-	worktree := m.SelectedWorktree()
-	title := strings.TrimSpace(m.prTitle.Value())
-	if title == "" {
-		return PullRequestRequest{}, fmt.Errorf("PR title is required")
-	}
-	if worktree.Path == "" {
-		return PullRequestRequest{}, fmt.Errorf("no worktree selected")
-	}
-	if worktree.Branch == "" || worktree.Branch == "detached" {
-		return PullRequestRequest{}, fmt.Errorf("selected worktree has no branch")
-	}
-	return PullRequestRequest{
-		CLI:         m.forgeCLI,
-		WorktreeDir: worktree.Path,
-		Branch:      worktree.Branch,
-		Title:       title,
-		Body:        strings.TrimSpace(m.prBody.Value()),
-	}, nil
 }
 
 func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1481,7 +1304,7 @@ func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		if m.deletingWorktree {
 			return m, nil
 		}
-		m.confirmDelete = false
+		m.mode = modeNormal
 		return m, nil
 	case "ctrl+c", "q":
 		return m, tea.Quit
@@ -1491,14 +1314,14 @@ func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) deleteSelectedWorktreeCmd() tea.Cmd {
-	worktree := m.SelectedWorktree()
-	if m.deleteWorktree == nil {
+	worktree := m.selectedWorktreeValue()
+	if m.deps.deleteWorktree == nil {
 		return func() tea.Msg {
 			return deleteWorktreeFinishedMsg{worktree: worktree, err: fmt.Errorf("delete worktree is not configured")}
 		}
 	}
 	return func() tea.Msg {
-		return deleteWorktreeFinishedMsg{worktree: worktree, err: m.deleteWorktree(m.context, worktree)}
+		return deleteWorktreeFinishedMsg{worktree: worktree, err: m.deps.deleteWorktree(m.context, worktree)}
 	}
 }
 
@@ -1508,26 +1331,22 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc", "t":
-		m.pickingTheme = false
+		m.mode = modeNormal
 	case "j", "down":
-		if m.themeCursor < m.themePickerTotalRows()-1 {
-			m.themeCursor++
-		}
+		m.themePicker.moveCursor(1)
 	case "k", "up":
-		if m.themeCursor > 0 {
-			m.themeCursor--
-		}
+		m.themePicker.moveCursor(-1)
 	case " ", "space":
-		if m.themeCursor == 0 {
+		if m.themePicker.cursor == 0 {
 			cmd = m.toggleTransparentBackground()
 		}
 	case "enter":
-		if m.themeCursor == 0 {
+		if m.themePicker.cursor == 0 {
 			return m, nil
 		} else {
 			cmd = m.applyThemeCursor()
 		}
-		m.pickingTheme = false
+		m.mode = modeNormal
 	}
 	return m, cmd
 }
@@ -1537,47 +1356,28 @@ func (m Model) handleMergeTargetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc", "m":
-		if m.mergingBranch {
+		if m.merge.merging {
 			return m, nil
 		}
-		m.pickingMergeTarget = false
+		m.mode = modeNormal
 		return m, nil
 	case "enter":
-		if m.mergingBranch {
+		if m.merge.merging {
 			return m, nil
 		}
 		return m, m.openMergeConfirm()
 	}
-	var cmd tea.Cmd
-	m.mergeTargetList, cmd = m.mergeTargetList.Update(msg)
-	return m, cmd
+	return m, m.merge.updateTargetList(msg)
 }
 
 func (m *Model) openMergeConfirm() tea.Cmd {
-	request, ok := m.selectedMergeRequest()
+	request, ok := m.merge.selectedRequest(m.selectedWorktreeValue())
 	if !ok {
 		return m.showErrorToast("no merge target branch")
 	}
-	m.mergeRequest = request
-	m.mergeConfirmScrollX = 0
-	m.pickingMergeTarget = false
-	m.confirmMerge = true
+	m.merge.openConfirm(request)
+	m.mode = modeMergeConfirm
 	return nil
-}
-
-func (m Model) selectedMergeRequest() (MergeRequest, bool) {
-	target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem)
-	if !ok {
-		return MergeRequest{}, false
-	}
-	request := MergeRequest{
-		Source: m.mergeSource,
-		Target: target.worktree,
-	}
-	if request.Source.Path == "" {
-		request.Source = m.SelectedWorktree()
-	}
-	return request, true
 }
 
 func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1585,12 +1385,11 @@ func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc", "n", "m":
-		if m.mergingBranch {
+		if m.merge.merging {
 			return m, nil
 		}
-		m.confirmMerge = false
-		m.mergeRequest = MergeRequest{}
-		m.mergeConfirmScrollX = 0
+		m.mode = modeNormal
+		m.merge.cancelConfirm()
 		return m, nil
 	case "h", "left":
 		m.scrollMergeConfirmHorizontal(-1)
@@ -1599,7 +1398,7 @@ func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.scrollMergeConfirmHorizontal(1)
 		return m, nil
 	case "enter", "y":
-		if m.mergingBranch {
+		if m.merge.merging {
 			return m, nil
 		}
 		return m, m.mergeConfirmedTargetCmd()
@@ -1608,31 +1407,29 @@ func (m Model) handleMergeConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) mergeConfirmedTargetCmd() tea.Cmd {
-	request := m.mergeRequest
-	if request.Source.Path == "" || request.Target.Path == "" {
+	request, ok := m.merge.start()
+	if !ok {
 		return m.showErrorToast("no merge target branch")
 	}
-	m.mergingBranch = true
 	return func() tea.Msg {
-		return mergeBranchFinishedMsg{request: request, err: m.mergeBranch(m.context, request)}
+		return mergeBranchFinishedMsg{request: request, err: m.deps.mergeBranch(m.context, request)}
 	}
 }
 
 func (m *Model) applyThemeCursor() tea.Cmd {
-	themeIndex := m.themeCursor - 1
-	if themeIndex < 0 || themeIndex >= len(m.themeNames) {
+	name, ok := m.themePicker.selectedName()
+	if !ok {
 		return nil
 	}
-	name := m.themeNames[themeIndex]
 	preset, err := theme.Preset(name)
 	if err != nil {
 		return m.showErrorToast(err.Error())
 	}
-	m.themeName = name
-	m.styles = theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: m.transparent})
+	m.themePicker.name = name
+	m.styles = theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: m.themePicker.transparent})
 	var cmd tea.Cmd
-	if m.saveTheme != nil {
-		if err := m.saveTheme(name); err != nil {
+	if m.deps.saveTheme != nil {
+		if err := m.deps.saveTheme(name); err != nil {
 			cmd = m.showErrorToast(fmt.Sprintf("Could not save theme: %s", err))
 		}
 	}
@@ -1641,15 +1438,15 @@ func (m *Model) applyThemeCursor() tea.Cmd {
 }
 
 func (m *Model) toggleTransparentBackground() tea.Cmd {
-	m.transparent = !m.transparent
-	preset, err := theme.Preset(m.themeName)
+	m.themePicker.toggleTransparent()
+	preset, err := theme.Preset(m.themePicker.name)
 	if err != nil {
 		return m.showErrorToast(err.Error())
 	}
-	m.styles = theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: m.transparent})
+	m.styles = theme.NewStylesWithOptions(preset, theme.StyleOptions{Transparent: m.themePicker.transparent})
 	m.refreshDiff()
-	if m.saveTransparent != nil {
-		if err := m.saveTransparent(m.transparent); err != nil {
+	if m.deps.saveTransparent != nil {
+		if err := m.deps.saveTransparent(m.themePicker.transparent); err != nil {
 			return m.showErrorToast(fmt.Sprintf("Could not save transparency: %s", err))
 		}
 	}
@@ -1658,7 +1455,7 @@ func (m *Model) toggleTransparentBackground() tea.Cmd {
 
 func (m Model) handleFileFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code == '\r' || msg.Code == '\n' {
-		m.filteringFiles = false
+		m.mode = modeNormal
 		return m, m.ensureSelectedDiffCmd()
 	}
 	switch msg.String() {
@@ -1667,11 +1464,11 @@ func (m Model) handleFileFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		selected := m.Selected()
 		m.fileFilter = ""
-		m.filteringFiles = false
+		m.mode = modeNormal
 		m.restoreSelectedFile(selected, m.selected)
 		return m, m.ensureSelectedDiffCmd()
 	case "enter":
-		m.filteringFiles = false
+		m.mode = modeNormal
 		return m, m.ensureSelectedDiffCmd()
 	case "backspace":
 		if m.fileFilter == "" {
@@ -1699,7 +1496,7 @@ func (m Model) handleFileFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
-	if m.pickingTheme {
+	if m.mode == modeThemePicker {
 		overlay := m.renderThemePicker()
 		x, y := m.overlayPosition(overlay)
 		if mouse.X < x || mouse.X >= x+lipgloss.Width(overlay) {
@@ -1707,15 +1504,15 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 		}
 		index := mouse.Y - y - 2
 		if index == 0 {
-			m.themeCursor = 0
+			m.themePicker.setCursor(0)
 			cmd := m.toggleTransparentBackground()
 			return false, cmd
 		}
 		offset := m.themePickerOffset()
-		if index > 0 && index <= m.themePickerVisibleThemeRows() && offset+index-1 < len(m.themeNames) {
-			m.themeCursor = offset + index
+		if index > 0 && index <= m.themePickerVisibleThemeRows() && offset+index-1 < len(m.themePicker.names) {
+			m.themePicker.setCursor(offset + index)
 			cmd := m.applyThemeCursor()
-			m.pickingTheme = false
+			m.mode = modeNormal
 			return false, cmd
 		}
 		return false, nil
@@ -1732,7 +1529,7 @@ func (m *Model) handleMouse(mouse tea.Mouse) (bool, tea.Cmd) {
 	worktreeHeight := m.worktreePaneHeight(contentHeight)
 	bodyY := mouse.Y
 	if bodyY >= 0 && bodyY < worktreeHeight {
-		index := m.worktreeListOffset(worktreeHeight) + bodyY - 1
+		index := m.offset(worktreeHeight) + bodyY - 1
 		if index >= 0 && index < len(m.worktrees) {
 			m.focusedPane = paneWorktrees
 			m.selectWorktree(index)
@@ -1760,19 +1557,15 @@ func (m Model) handleThemeWheel(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 	}
 	switch mouse.Button {
 	case tea.MouseWheelUp:
-		if m.themeCursor > 0 {
-			m.themeCursor--
-		}
+		m.themePicker.moveCursor(-1)
 	case tea.MouseWheelDown:
-		if m.themeCursor < m.themePickerTotalRows()-1 {
-			m.themeCursor++
-		}
+		m.themePicker.moveCursor(1)
 	}
 	return m, nil
 }
 
 func (m Model) reloadCmd(generation int, selectedWorktreePath string) tea.Cmd {
-	reload := m.reload
+	reload := m.deps.reload
 	if reload == nil {
 		return func() tea.Msg {
 			return reloadMsg{generation: generation, snapshot: Snapshot{Changes: m.changes, Diffs: m.diffs, Error: fmt.Errorf("no reload source configured")}}
@@ -1790,7 +1583,7 @@ func (m *Model) startReloadCmd(selectedWorktreePath string) tea.Cmd {
 }
 
 func (m Model) ensureSelectedDiffCmd() tea.Cmd {
-	return m.ensureSelectedDiffCmdWithYOffset(m.viewport.YOffset())
+	return m.ensureSelectedDiffCmdWithYOffset(m.diff.viewport.YOffset())
 }
 
 func (m Model) ensureSelectedDiffCmdWithYOffset(diffYOffset int) tea.Cmd {
@@ -1802,7 +1595,7 @@ func (m Model) reloadSelectedDiffCmdWithYOffset(diffYOffset int) tea.Cmd {
 }
 
 func (m Model) selectedDiffCmdWithYOffset(diffYOffset int, force bool) tea.Cmd {
-	if m.loadDiff == nil {
+	if m.deps.loadDiff == nil {
 		return nil
 	}
 	selected := m.Selected()
@@ -1817,13 +1610,13 @@ func (m Model) selectedDiffCmdWithYOffset(diffYOffset int, force bool) tea.Cmd {
 			return nil
 		}
 	}
-	worktreePath := m.SelectedWorktree().Path
+	worktreePath := m.selectedWorktreeValue().Path
 	return func() tea.Msg {
 		return diffLoadedMsg{
 			revision:    m.revision,
 			worktree:    worktreePath,
 			path:        selected.Path,
-			diff:        m.loadDiff(m.context, worktreePath, selected),
+			diff:        m.deps.loadDiff(m.context, worktreePath, selected),
 			diffYOffset: diffYOffset,
 		}
 	}
@@ -1831,25 +1624,21 @@ func (m Model) selectedDiffCmdWithYOffset(diffYOffset int, force bool) tea.Cmd {
 
 func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 	selected := m.Selected()
-	selectedWorktreePath := m.SelectedWorktree().Path
+	selectedWorktreePath := m.selectedWorktreeValue().Path
 	selectedIndex := m.selected
-	diffYOffset := m.viewport.YOffset()
-	preserveMergeTargetPicker := m.pickingMergeTarget
-	mergeSource := m.mergeSource
-	mergeTargetPath := ""
-	if target, ok := m.mergeTargetList.SelectedItem().(mergeTargetItem); ok {
-		mergeTargetPath = target.worktree.Path
+	diffYOffset := m.diff.viewport.YOffset()
+	preserveMergeTargetPicker := m.mode == modeMergeTarget
+	mergeSource := m.merge.source
+	mergeTargetPath := m.merge.selectedTargetPath()
+	mergeRequest := m.merge.request
+	preserveMergeConfirm := m.mode == modeMergeConfirm
+	preserveMergingBranch := m.merge.merging
+	preserveMergeConfirmScrollX := m.merge.confirmScrollX
+	if preserveMergeTargetPicker || preserveMergeConfirm {
+		m.mode = modeNormal
 	}
-	mergeRequest := m.mergeRequest
-	preserveMergeConfirm := m.confirmMerge
-	preserveMergingBranch := m.mergingBranch
-	preserveMergeConfirmScrollX := m.mergeConfirmScrollX
-	m.pickingMergeTarget = false
-	m.mergingBranch = false
-	m.mergeSource = gitview.Worktree{}
-	m.confirmMerge = false
-	m.mergeRequest = MergeRequest{}
-	m.mergeConfirmScrollX = 0
+	m.merge.clearTargetPicker()
+	m.merge.finish()
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
@@ -1861,14 +1650,15 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 	m.normalizeWorktrees()
 	if preserveMergeConfirm {
 		if request, ok := m.refreshedMergeRequest(mergeRequest); ok {
-			m.confirmMerge = true
-			m.mergingBranch = preserveMergingBranch
-			m.mergeRequest = request
-			m.mergeSource = request.Source
-			m.mergeConfirmScrollX = clamp(preserveMergeConfirmScrollX, 0, m.maxMergeConfirmScrollX(m.mergeConfirmContentWidth(m.mergeConfirmWidth())))
+			m.mode = modeMergeConfirm
+			m.merge.restoreConfirm(
+				request,
+				preserveMergingBranch,
+				clamp(preserveMergeConfirmScrollX, 0, m.maxMergeConfirmScrollX(m.mergeConfirmContentWidth(m.mergeConfirmWidth()))),
+			)
 		}
 	}
-	if !m.confirmMerge && preserveMergeTargetPicker {
+	if m.mode != modeMergeConfirm && preserveMergeTargetPicker {
 		m.restoreMergeTargetPicker(mergeSource, mergeTargetPath)
 	}
 	visibleChanges := m.visibleChanges()
@@ -1887,10 +1677,10 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 		m.diffs = map[string]string{}
 	}
 	m.refreshDiff()
-	preservedDiffScroll := selected.Path != "" && m.Selected().Path == selected.Path && m.SelectedWorktree().Path == selectedWorktreePath
-	reloadSelectedDiff := snapshot.Diffs == nil && preservedDiffScroll && selectedDiffStatsChanged(selected, m.Selected())
+	preservedDiffScroll := selected.Path != "" && m.Selected().Path == selected.Path && m.selectedWorktreeValue().Path == selectedWorktreePath
+	reloadSelectedDiff := snapshot.Diffs == nil && preservedDiffScroll && selectedDiffChanged(selected, m.Selected())
 	if preservedDiffScroll {
-		m.viewport.SetYOffset(diffYOffset)
+		m.diff.viewport.SetYOffset(diffYOffset)
 	}
 	return preservedDiffScroll, diffYOffset, reloadSelectedDiff
 }
@@ -1903,12 +1693,18 @@ func (m Model) snapshotUnchanged(snapshot Snapshot) bool {
 		worktreeStatesEqual(m.worktrees, snapshot.Worktrees)
 }
 
-func selectedDiffStatsChanged(previous, next gitview.FileChange) bool {
-	return previous.Status != next.Status ||
+func selectedDiffChanged(previous, next gitview.FileChange) bool {
+	if previous.Status != next.Status ||
 		previous.OldPath != next.OldPath ||
 		previous.Additions != next.Additions ||
 		previous.Deletions != next.Deletions ||
-		previous.Binary != next.Binary
+		previous.Binary != next.Binary {
+		return true
+	}
+	if previous.Fingerprint != "" || next.Fingerprint != "" {
+		return previous.Fingerprint != next.Fingerprint
+	}
+	return false
 }
 
 func worktreeStatesEqual(left, right []WorktreeState) bool {
@@ -1955,7 +1751,7 @@ func errorText(err error) string {
 }
 
 func (m *Model) restoreMergeTargetPicker(source gitview.Worktree, selectedTargetPath string) bool {
-	refreshedSource, ok := m.worktreeByPath(source.Path)
+	refreshedSource, ok := m.byPath(source.Path)
 	if !ok || refreshedSource.Branch == "" || refreshedSource.Branch == "detached" || m.isDefaultBranch(refreshedSource) {
 		return false
 	}
@@ -1963,24 +1759,23 @@ func (m *Model) restoreMergeTargetPicker(source gitview.Worktree, selectedTarget
 	if len(items) == 0 {
 		return false
 	}
-	m.mergeSource = refreshedSource
-	m.mergeTargetList = m.newMergeTargetList(items)
+	m.merge.openTargetPicker(refreshedSource, m.newMergeTargetList(items))
 	if selectedTargetPath != "" {
 		if index := slices.IndexFunc(items, func(item list.Item) bool {
 			target, ok := item.(mergeTargetItem)
 			return ok && target.worktree.Path == selectedTargetPath
 		}); index >= 0 {
-			m.mergeTargetList.Select(index)
+			m.merge.targetList.Select(index)
 		}
 	}
-	m.pickingMergeTarget = true
+	m.mode = modeMergeTarget
 	m.focusedPane = paneWorktrees
 	return true
 }
 
 func (m Model) refreshedMergeRequest(request MergeRequest) (MergeRequest, bool) {
-	source, sourceOK := m.worktreeByPath(request.Source.Path)
-	target, targetOK := m.worktreeByPath(request.Target.Path)
+	source, sourceOK := m.byPath(request.Source.Path)
+	target, targetOK := m.byPath(request.Target.Path)
 	if !sourceOK || !targetOK {
 		return MergeRequest{}, false
 	}
@@ -1990,72 +1785,47 @@ func (m Model) refreshedMergeRequest(request MergeRequest) (MergeRequest, bool) 
 	}, true
 }
 
-func (m Model) worktreeByPath(path string) (gitview.Worktree, bool) {
-	if path == "" {
-		return gitview.Worktree{}, false
-	}
-	for _, state := range m.worktrees {
-		if state.Worktree.Path == path {
-			return state.Worktree, true
-		}
-	}
-	return gitview.Worktree{}, false
-}
-
 func (m *Model) normalizeWorktrees() {
-	if len(m.worktrees) == 0 {
-		m.worktrees = []WorktreeState{{
-			Worktree: gitview.Worktree{Path: ".", Branch: "current", Current: true},
-			Changes:  m.changes,
-			Error:    m.err,
-		}}
-		m.selectedWorktree = 0
-		return
-	}
-	if m.selectedWorktree < 0 || m.selectedWorktree >= len(m.worktrees) {
-		m.selectedWorktree = 0
-	}
-	m.changes = m.worktrees[m.selectedWorktree].Changes
-	if m.worktrees[m.selectedWorktree].Error != nil {
-		m.err = m.worktrees[m.selectedWorktree].Error
+	state := m.normalize(m.changes, m.err)
+	m.changes = state.Changes
+	if state.Error != nil {
+		m.err = state.Error
 	}
 }
 
 func (m *Model) selectWorktree(index int) {
-	if index < 0 || index >= len(m.worktrees) {
+	state, ok := m.selectIndex(index)
+	if !ok {
 		return
 	}
-	m.selectedWorktree = index
-	m.changes = m.worktrees[index].Changes
-	m.err = m.worktrees[index].Error
+	m.applySelectedWorktree(state)
+}
+
+func (m *Model) applySelectedWorktree(state WorktreeState) {
+	m.changes = state.Changes
+	m.err = state.Error
 	m.selected = 0
 	m.refreshDiff()
 }
 
 func (m *Model) removeWorktree(path string) {
-	if path == "" {
+	state, ok := m.remove(path, m.changes, m.err)
+	if !ok {
 		return
 	}
-	for i, state := range m.worktrees {
-		if state.Worktree.Path != path {
-			continue
-		}
-		m.worktrees = append(m.worktrees[:i], m.worktrees[i+1:]...)
-		if m.selectedWorktree >= len(m.worktrees) {
-			m.selectedWorktree = max(0, len(m.worktrees)-1)
-		}
-		m.normalizeWorktrees()
-		m.refreshDiff()
-		return
+	m.changes = state.Changes
+	if state.Error != nil {
+		m.err = state.Error
 	}
+	m.refreshDiff()
 }
 
 func (m *Model) resizeViewport() {
 	_, rightWidth := m.layoutWidths()
 	contentHeight := m.bodyHeight()
-	m.viewport.Style = m.styles.Diff
-	m.viewport.SetWidth(max(10, panelInnerWidth(rightWidth)))
-	m.viewport.SetHeight(max(3, panelInnerHeight(contentHeight)))
+	m.diff.viewport.Style = m.styles.Diff
+	m.diff.viewport.SetWidth(max(10, panelInnerWidth(rightWidth)))
+	m.diff.viewport.SetHeight(max(3, panelInnerHeight(contentHeight)))
 }
 
 func (m *Model) refreshDiff() {
@@ -2066,7 +1836,7 @@ func (m *Model) refreshDiff() {
 			m.setDiffContentFor("empty:no-matching:"+m.fileFilter, "No matching files.")
 			return
 		}
-		m.setDiffContentFor("empty:no-changes:"+m.SelectedWorktree().Path, "No changes in this worktree.")
+		m.setDiffContentFor("empty:no-changes:"+m.selectedWorktreeValue().Path, "No changes in this worktree.")
 		return
 	}
 	m.selected = clamp(m.selected, 0, len(changes)-1)
@@ -2077,7 +1847,7 @@ func (m *Model) refreshDiff() {
 		diff = fmt.Sprintf("No diff loaded for %s", selected.Path)
 	}
 	if m.setDiffContentFor(diffContentKey, diff) {
-		m.viewport.GotoTop()
+		m.diff.viewport.GotoTop()
 	}
 }
 
@@ -2098,20 +1868,20 @@ func (m *Model) setDiffContent(diff string) bool {
 }
 
 func (m *Model) setDiffContentFor(key, diff string) bool {
-	if key == m.diffContentKey && diff == m.diffContent {
+	if key == m.diff.contentKey && diff == m.diff.content {
 		return false
 	}
 	lines := strings.Split(diff, "\n")
-	m.diffContentKey = key
-	m.diffContent = diff
-	m.diffLines = lines
-	m.viewport.StyleLineFunc = func(index int) lipgloss.Style {
+	m.diff.contentKey = key
+	m.diff.content = diff
+	m.diff.lines = lines
+	m.diff.viewport.StyleLineFunc = func(index int) lipgloss.Style {
 		if index < 0 || index >= len(lines) {
-			return m.styles.Diff.Inline(true).Width(m.viewport.Width())
+			return m.styles.Diff.Inline(true).Width(m.diff.viewport.Width())
 		}
-		return m.diffLineStyle(lines[index]).Inline(true).Width(m.viewport.Width())
+		return m.diffLineStyle(lines[index]).Inline(true).Width(m.diff.viewport.Width())
 	}
-	m.viewport.SetContent(diff)
+	m.diff.viewport.SetContent(diff)
 	return true
 }
 
@@ -2119,8 +1889,8 @@ func (m Model) renderWorktrees(width, height int) string {
 	focused := m.focusedPane == paneWorktrees
 	lines := make([]string, 0, len(m.worktrees))
 	contentWidth := panelInnerWidth(width)
-	visibleRows := m.worktreeVisibleRows(height)
-	offset := m.worktreeListOffset(height)
+	visibleRows := m.visibleRows(height)
+	offset := m.offset(height)
 	end := min(len(m.worktrees), offset+visibleRows)
 	for i, worktree := range m.worktrees[offset:end] {
 		index := offset + i
@@ -2138,30 +1908,6 @@ func (m Model) renderWorktrees(width, height int) string {
 	innerHeight := panelInnerHeight(height)
 	title := fmt.Sprintf("[1]-%s %d worktrees", iconWorktree, len(m.worktrees))
 	return m.renderPanel(width, height, focused, title, strings.Join(fillLines(lines, innerHeight), "\n"))
-}
-
-func (m Model) worktreeListOffset(height int) int {
-	if len(m.worktrees) == 0 {
-		return 0
-	}
-	visibleRows := m.worktreeVisibleRows(height)
-	if m.selectedWorktree < visibleRows {
-		return 0
-	}
-	offset := m.selectedWorktree - visibleRows + 1
-	maxOffset := max(0, len(m.worktrees)-visibleRows)
-	if offset > maxOffset {
-		return maxOffset
-	}
-	return offset
-}
-
-func (m Model) worktreeVisibleRows(height int) int {
-	visibleRows := max(1, panelInnerHeight(height))
-	if len(m.worktrees) > visibleRows {
-		return max(1, visibleRows-1)
-	}
-	return visibleRows
 }
 
 func (m Model) renderFiles(width, height int) string {
@@ -2377,7 +2123,7 @@ func (m Model) listFill(text string) string {
 }
 
 func (m Model) renderDeleteConfirm() string {
-	worktree := m.SelectedWorktree()
+	worktree := m.selectedWorktreeValue()
 	width := 48
 	panel := m.overlayPanelStyle()
 	lineStyle := m.styles.Diff
@@ -2418,8 +2164,8 @@ func (m Model) confirmButton(key, label string) string {
 
 func (m Model) renderPRForm() string {
 	width := min(max(48, m.width-8), 78)
-	titleInput := m.prTitle
-	bodyInput := m.prBody
+	titleInput := m.pr.title
+	bodyInput := m.pr.body
 	inputWidth := max(1, panelInnerWidth(width))
 	titleInput.SetWidth(inputWidth)
 	titleInput.SetStyles(m.prTextInputStyles(inputWidth))
@@ -2433,10 +2179,10 @@ func (m Model) renderPRForm() string {
 	header := m.styles.Title.
 		Background(m.overlayPanelStyle().GetBackground()).
 		Width(width).
-		Render(iconPR + " Forge CLI: " + m.forgeCLI)
-	title := m.renderPanel(width, 3, m.prFormFocus == prFormTitle, "PR title", titleInput.View())
+		Render(iconPR + " Forge CLI: " + m.pr.forgeCLI)
+	title := m.renderPanel(width, 3, m.pr.focus == prTitle, "PR title", titleInput.View())
 	bodyTitle := "PR description    <tab> focus    <c-o> create"
-	body := m.renderPanel(width, bodyPanelHeight, m.prFormFocus == prFormBody, bodyTitle, bodyInput.View())
+	body := m.renderPanel(width, bodyPanelHeight, m.pr.focus == prBody, bodyTitle, bodyInput.View())
 	return lipgloss.JoinVertical(lipgloss.Left, header, title, body)
 }
 
@@ -2460,7 +2206,7 @@ func (m Model) renderThemePicker() string {
 	lines := []string{m.styles.Title.Background(m.overlayPanelStyle().GetBackground()).Width(width).Render(iconTheme + " Themes")}
 	lines = append(lines, m.renderThemePickerRow(0, width))
 	offset := m.themePickerOffset()
-	end := min(len(m.themeNames), offset+m.themePickerVisibleThemeRows())
+	end := min(len(m.themePicker.names), offset+m.themePickerVisibleThemeRows())
 	for themeIndex := offset; themeIndex < end; themeIndex++ {
 		lines = append(lines, m.renderThemePickerRow(themeIndex+1, width))
 	}
@@ -2480,11 +2226,11 @@ func (m Model) themePickerWidth() int {
 
 func (m Model) renderThemePickerRow(index, width int) string {
 	prefix := "  "
-	if index == m.themeCursor {
+	if index == m.themePicker.cursor {
 		prefix = iconSelected + " "
 	}
 	line := prefix + m.themePickerRowLabel(index)
-	if index == m.themeCursor {
+	if index == m.themePicker.cursor {
 		return m.styles.FileSelected.Width(width).Render(line)
 	}
 	return m.styles.Diff.Width(width).Render(line)
@@ -2493,21 +2239,21 @@ func (m Model) renderThemePickerRow(index, width int) string {
 func (m Model) themePickerRowLabel(index int) string {
 	if index == 0 {
 		state := iconToggleOff
-		if m.transparent {
+		if m.themePicker.transparent {
 			state = iconToggleOn
 		}
 		return "Transparent background  " + state
 	}
 	themeIndex := index - 1
-	if themeIndex < 0 || themeIndex >= len(m.themeNames) {
+	if themeIndex < 0 || themeIndex >= len(m.themePicker.names) {
 		return ""
 	}
-	return m.themeNames[themeIndex]
+	return m.themePicker.names[themeIndex]
 }
 
 func (m Model) renderThemePickerFooter(width int) string {
 	label := m.themePickerPositionLabel()
-	if m.themeCursor == 0 {
+	if m.themePicker.cursor == 0 {
 		label = m.themePickerFooterLabel("space toggle", label, width)
 	}
 	return m.styles.Muted.
@@ -2532,22 +2278,22 @@ func (m Model) themePickerFooterLabel(hint, position string, width int) string {
 }
 
 func (m Model) themePickerPositionLabel() string {
-	total := len(m.themeNames)
+	total := len(m.themePicker.names)
 	if total == 0 {
 		return "0/0"
 	}
-	current := clamp(m.themeCursor, 0, total)
+	current := clamp(m.themePicker.cursor, 0, total)
 	return fmt.Sprintf("%d/%d", current, total)
 }
 
 func (m Model) renderMergeTargetPicker() string {
-	targets := m.mergeTargetList
+	targets := m.merge.targetList
 	width := min(max(40, m.width-12), 70)
 	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
 	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
 	height := min(max(6, len(targets.Items())*2+2), max(6, m.bodyHeight()-5))
 	targets.SetSize(contentWidth, height)
-	source := renderOverlayLine(m.styles.Muted, contentWidth, "From: "+worktreeLabel(m.mergeSource)+"  >  Target: "+selectedMergeTargetLabel(targets), 0)
+	source := renderOverlayLine(m.styles.Muted, contentWidth, "From: "+worktreeLabel(m.merge.source)+"  >  Target: "+selectedMergeTargetLabel(targets), 0)
 	return panel.Render(lipgloss.JoinVertical(lipgloss.Left, source, targets.View()))
 }
 
@@ -2563,7 +2309,7 @@ func (m Model) renderMergeConfirm() string {
 	width := m.mergeConfirmWidth()
 	panel := m.overlayPanelStyle().Width(width).Padding(1, 2)
 	contentWidth := max(1, width-panel.GetHorizontalFrameSize())
-	scrollX := clamp(m.mergeConfirmScrollX, 0, m.maxMergeConfirmScrollX(contentWidth))
+	scrollX := clamp(m.merge.confirmScrollX, 0, m.maxMergeConfirmScrollX(contentWidth))
 	texts := m.mergeConfirmTextLines()
 	lines := []string{
 		renderOverlayLine(m.styles.Title.Background(panel.GetBackground()), contentWidth, texts[0], scrollX),
@@ -2587,30 +2333,30 @@ func (m Model) renderOverlapPicker() string {
 		Width(contentWidth).
 		Render(iconWarning + " Overlaps for " + m.Selected().Path)
 	lines := []string{title}
-	visibleRows := min(len(m.overlapTargets), max(1, m.bodyHeight()-8))
+	visibleRows := min(len(m.overlap.targets), max(1, m.bodyHeight()-8))
 	offset := m.overlapPickerOffset(visibleRows)
-	end := min(len(m.overlapTargets), offset+visibleRows)
+	end := min(len(m.overlap.targets), offset+visibleRows)
 	for i := offset; i < end; i++ {
 		lines = append(lines, m.renderOverlapPickerRow(i, contentWidth))
 	}
-	if len(m.overlapTargets) == 0 {
+	if len(m.overlap.targets) == 0 {
 		lines = append(lines, m.styles.Muted.Background(panel.GetBackground()).Width(contentWidth).Render("No overlaps"))
 	}
 	return panel.Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) overlapPickerOffset(visibleRows int) int {
-	if visibleRows <= 0 || len(m.overlapTargets) <= visibleRows || m.overlapCursor < visibleRows {
+	if visibleRows <= 0 || len(m.overlap.targets) <= visibleRows || m.overlap.cursor < visibleRows {
 		return 0
 	}
-	return min(m.overlapCursor-visibleRows+1, len(m.overlapTargets)-visibleRows)
+	return min(m.overlap.cursor-visibleRows+1, len(m.overlap.targets)-visibleRows)
 }
 
 func (m Model) renderOverlapPickerRow(index, width int) string {
-	target := m.overlapTargets[index]
+	target := m.overlap.targets[index]
 	style := m.styles.Diff.Background(m.overlayPanelStyle().GetBackground())
 	prefix := "  "
-	if index == m.overlapCursor {
+	if index == m.overlap.cursor {
 		style = m.styles.FileSelected
 		prefix = iconSelected + " "
 	}
@@ -2644,7 +2390,7 @@ func (m Model) renderOverlapCompareNarrowMessage() string {
 func (m Model) renderOverlapComparePanel(width, height int) string {
 	width = max(4, width)
 	height = max(4, height)
-	title := fmt.Sprintf("[3]-Compare %s ↔ %s  %s", worktreeLabel(m.SelectedWorktree()), worktreeLabel(m.compareTarget.Worktree), m.Selected().Path)
+	title := fmt.Sprintf("[3]-Compare %s ↔ %s  %s", worktreeLabel(m.selectedWorktreeValue()), worktreeLabel(m.overlap.compareTarget.Worktree), m.Selected().Path)
 	innerWidth := panelInnerWidth(width)
 	innerHeight := panelInnerHeight(height)
 	dividerWidth := 1
@@ -2654,14 +2400,14 @@ func (m Model) renderOverlapComparePanel(width, height int) string {
 	if leftDiff == "" {
 		leftDiff = fmt.Sprintf("No diff loaded for %s", m.Selected().Path)
 	}
-	rightDiff := m.compareDiff
-	if m.compareLoading {
+	rightDiff := m.overlap.compareDiff
+	if m.overlap.compareLoading {
 		rightDiff = "Loading overlap diff..."
 	} else if rightDiff == "" {
-		rightDiff = fmt.Sprintf("No diff loaded for %s", m.compareTarget.Change.Path)
+		rightDiff = fmt.Sprintf("No diff loaded for %s", m.overlap.compareTarget.Change.Path)
 	}
-	left := strings.Split(m.renderDiffTextAt(leftDiff, columnWidth, contentHeight, m.compareYOffset, m.compareXOffset), "\n")
-	right := strings.Split(m.renderDiffTextAt(rightDiff, columnWidth, contentHeight, m.compareYOffset, m.compareXOffset), "\n")
+	left := strings.Split(m.renderDiffTextAt(leftDiff, columnWidth, contentHeight, m.overlap.compareYOffset, m.overlap.compareXOffset), "\n")
+	right := strings.Split(m.renderDiffTextAt(rightDiff, columnWidth, contentHeight, m.overlap.compareYOffset, m.overlap.compareXOffset), "\n")
 	divider := m.styles.Muted.Background(m.styles.Diff.GetBackground()).Render("│")
 	lines := make([]string, 0, contentHeight)
 	for i := range contentHeight {
@@ -2682,7 +2428,7 @@ func (m Model) renderDiffTextAt(diff string, width, height, yOffset, xOffset int
 	height = max(1, height)
 	textWidth := m.diffTextWidth(width)
 	numbered := numberedDiffLines(strings.Split(diff, "\n"))
-	if m.viewport.SoftWrap {
+	if m.diff.viewport.SoftWrap {
 		return m.renderWrappedDiffLines(numbered, width, textWidth, height, yOffset)
 	}
 	return m.renderUnwrappedDiffLines(numbered, width, textWidth, height, yOffset, xOffset)
@@ -2719,7 +2465,7 @@ func (m Model) renderUnwrappedDiffLines(numbered []numberedDiffLine, width, text
 }
 
 func (m Model) mergeConfirmTextLines() []string {
-	request := m.mergeRequest
+	request := m.merge.request
 	source := worktreeLabel(request.Source)
 	target := worktreeLabel(request.Target)
 	return []string{
@@ -2767,11 +2513,11 @@ func (m Model) overlayPanelStyle() lipgloss.Style {
 
 func (m Model) themePickerOffset() int {
 	visibleRows := m.themePickerVisibleThemeRows()
-	themeCursor := max(0, m.themeCursor-1)
-	if visibleRows <= 0 || len(m.themeNames) <= visibleRows || themeCursor < visibleRows {
+	themeCursor := m.themePicker.selectedThemeIndex()
+	if visibleRows <= 0 || len(m.themePicker.names) <= visibleRows || themeCursor < visibleRows {
 		return 0
 	}
-	return min(themeCursor-visibleRows+1, len(m.themeNames)-visibleRows)
+	return min(themeCursor-visibleRows+1, len(m.themePicker.names)-visibleRows)
 }
 
 func (m Model) themePickerVisibleRows() int {
@@ -2788,7 +2534,7 @@ func (m Model) themePickerVisibleThemeRows() int {
 }
 
 func (m Model) themePickerTotalRows() int {
-	return len(m.themeNames) + 1
+	return m.themePicker.totalRows()
 }
 
 func (m Model) themePickerOverlayHeight() int {
@@ -2909,7 +2655,7 @@ func (m Model) worktreePaneHeight(contentHeight int) int {
 }
 
 func (m Model) diffKey(change gitview.FileChange) string {
-	return m.SelectedWorktree().Path + "\x00" + change.Path
+	return m.selectedWorktreeValue().Path + "\x00" + change.Path
 }
 
 func renderWorktreeLine(styles theme.Styles, _ int, state WorktreeState) string {
