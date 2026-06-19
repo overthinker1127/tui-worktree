@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -2671,6 +2672,105 @@ func TestMouseClickFocusesDiffPanel(t *testing.T) {
 
 	if !strings.Contains(got.View().Content, "● [3]-") {
 		t.Fatalf("diff panel should be focused after diff click: %q", got.View().Content)
+	}
+}
+
+func TestMouseWheelScrollsDiffPanel(t *testing.T) {
+	model := testModel(t)
+	model.width = 100
+	model.height = 10
+	model.refreshDiff()
+	lines := make([]string, 0, 40)
+	for i := range 40 {
+		lines = append(lines, fmt.Sprintf(" line-%02d", i))
+	}
+	model.setDiffContent(strings.Join(lines, "\n"))
+	leftWidth, _ := model.layoutWidths()
+
+	next, _ := model.Update(tea.MouseWheelMsg{X: leftWidth + 2, Y: 5, Button: tea.MouseWheelDown})
+	got := next.(Model)
+
+	if got.focusedPane != paneDiff {
+		t.Fatalf("wheel over diff focusedPane = %v, want paneDiff", got.focusedPane)
+	}
+	if got.viewport.YOffset() == 0 {
+		t.Fatal("wheel down over diff should scroll viewport")
+	}
+
+	next, _ = got.Update(tea.MouseWheelMsg{X: leftWidth + 2, Y: 5, Button: tea.MouseWheelUp})
+	got = next.(Model)
+	if got.viewport.YOffset() != 0 {
+		t.Fatalf("wheel up over diff y offset = %d, want 0", got.viewport.YOffset())
+	}
+}
+
+func TestMouseWheelDoesNotScrollDiffBehindOverlays(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*Model)
+	}{
+		{name: "file filter", setup: func(m *Model) { m.filteringFiles = true }},
+		{name: "overlap picker", setup: func(m *Model) { m.pickingOverlap = true }},
+		{name: "pull request form", setup: func(m *Model) { m.creatingPR = true }},
+		{name: "delete confirm", setup: func(m *Model) { m.confirmDelete = true }},
+		{name: "merge confirm", setup: func(m *Model) { m.confirmMerge = true }},
+		{name: "merge target picker", setup: func(m *Model) { m.pickingMergeTarget = true }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := testModel(t)
+			model.width = 100
+			model.height = 10
+			model.refreshDiff()
+			lines := make([]string, 0, 40)
+			for i := range 40 {
+				lines = append(lines, fmt.Sprintf(" line-%02d", i))
+			}
+			model.setDiffContent(strings.Join(lines, "\n"))
+			model.focusedPane = paneFiles
+			tc.setup(&model)
+			leftWidth, _ := model.layoutWidths()
+
+			next, _ := model.Update(tea.MouseWheelMsg{X: leftWidth + 2, Y: 5, Button: tea.MouseWheelDown})
+			got := next.(Model)
+
+			if got.focusedPane != paneFiles {
+				t.Fatalf("wheel behind %s focusedPane = %v, want paneFiles", tc.name, got.focusedPane)
+			}
+			if got.viewport.YOffset() != 0 {
+				t.Fatalf("wheel behind %s y offset = %d, want 0", tc.name, got.viewport.YOffset())
+			}
+		})
+	}
+}
+
+func TestMouseWheelScrollsOverlapCompareWithoutScrollingDiff(t *testing.T) {
+	model := testModel(t)
+	model.width = 120
+	model.height = 10
+	model.refreshDiff()
+	lines := make([]string, 0, 40)
+	for i := range 40 {
+		lines = append(lines, fmt.Sprintf("+compare-%02d", i))
+	}
+	model.compareDiff = strings.Join(lines, "\n")
+	model.comparingOverlap = true
+
+	next, _ := model.Update(tea.MouseWheelMsg{X: 10, Y: 5, Button: tea.MouseWheelDown})
+	got := next.(Model)
+
+	if got.compareYOffset == 0 {
+		t.Fatal("wheel down should scroll overlap compare")
+	}
+	if got.viewport.YOffset() != 0 {
+		t.Fatalf("wheel over compare scrolled diff y offset = %d, want 0", got.viewport.YOffset())
+	}
+
+	next, _ = got.Update(tea.MouseWheelMsg{X: 10, Y: 5, Button: tea.MouseWheelUp})
+	got = next.(Model)
+	if got.compareYOffset != 0 {
+		t.Fatalf("wheel up compare y offset = %d, want 0", got.compareYOffset)
 	}
 }
 

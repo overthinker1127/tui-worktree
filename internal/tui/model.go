@@ -362,7 +362,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickingTheme {
 			return m.handleThemeWheel(msg.Mouse())
 		}
-		return m, nil
+		if m.filteringFiles || m.pickingOverlap || m.creatingPR || m.confirmDelete || m.confirmMerge || m.pickingMergeTarget {
+			return m, nil
+		}
+		return m.handleDiffWheel(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -1183,6 +1186,18 @@ func (m Model) handleOverlapCompareWheel(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 		m.scrollOverlapCompare(3)
 	}
 	return m, nil
+}
+
+func (m Model) handleDiffWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	leftWidth, _ := m.layoutWidths()
+	if mouse.X < leftWidth || mouse.Y < 0 || mouse.Y >= m.bodyHeight() {
+		return m, nil
+	}
+	m.focusedPane = paneDiff
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
 }
 
 func (m Model) isDefaultBranch(worktree gitview.Worktree) bool {
