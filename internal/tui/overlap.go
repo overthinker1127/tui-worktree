@@ -1,6 +1,9 @@
 package tui
 
-import gitview "github.com/overthinker1127/tui-worktree/internal/git"
+import (
+	gitview "github.com/overthinker1127/tui-worktree/internal/git"
+	"github.com/overthinker1127/tui-worktree/internal/tui/components"
+)
 
 type overlap struct {
 	cursor            int
@@ -74,4 +77,33 @@ func (o *overlap) clampCompareOffsets(maxYOffset, maxXOffset int, softWrap bool)
 		return
 	}
 	o.compareXOffset = clamp(o.compareXOffset, 0, maxXOffset)
+}
+
+func (o overlap) picker(selectedPath string) components.OverlapPicker {
+	items := make([]components.OverlapItem, len(o.targets))
+	for i, target := range o.targets {
+		items[i] = components.OverlapItem{
+			Label: worktreeLabel(target.Worktree),
+			Path:  target.Worktree.Path,
+		}
+	}
+	return components.OverlapPicker{
+		SelectedPath: selectedPath,
+		Items:        items,
+		Cursor:       o.cursor,
+	}
+}
+
+func (o overlap) compare(selectedWorktree gitview.Worktree, selectedFile gitview.FileChange, selectedDiff string) components.OverlapCompare {
+	return components.OverlapCompare{
+		LeftLabel:  worktreeLabel(selectedWorktree),
+		RightLabel: worktreeLabel(o.compareTarget.Worktree),
+		FilePath:   selectedFile.Path,
+		LeftDiff:   selectedDiff,
+		RightDiff:  o.compareDiff,
+		RightPath:  o.compareTarget.Change.Path,
+		Loading:    o.compareLoading,
+		YOffset:    o.compareYOffset,
+		XOffset:    o.compareXOffset,
+	}
 }

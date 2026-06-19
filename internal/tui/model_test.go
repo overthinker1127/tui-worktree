@@ -13,6 +13,7 @@ import (
 
 	gitview "github.com/overthinker1127/tui-worktree/internal/git"
 	"github.com/overthinker1127/tui-worktree/internal/theme"
+	"github.com/overthinker1127/tui-worktree/internal/tui/components"
 )
 
 func TestModelViewShowsFileListAndDiff(t *testing.T) {
@@ -41,7 +42,7 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 	if !strings.Contains(view, "● [2]-") {
 		t.Fatalf("View() should focus files panel by default: %q", view)
 	}
-	for _, want := range []string{iconFile, iconModified} {
+	for _, want := range []string{components.IconFile, components.IconModified} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("View() missing icon %q in %q", want, view)
 		}
@@ -121,7 +122,7 @@ func TestModelMovesSelectionDown(t *testing.T) {
 	})
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-	got := next.(Model).Selected()
+	got := next.(Model).selectedFileValue()
 
 	if got.Path != "b.go" {
 		t.Fatalf("Selected() = %q, want b.go", got.Path)
@@ -141,15 +142,15 @@ func TestQuestionMarkDoesNotOpenHelpOverlay(t *testing.T) {
 
 func TestThemePickerAppliesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	got := next.(Model)
 
-	if got.themePicker.name != "gruvbox-dark" {
-		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.name)
+	if got.themePicker.Name != "gruvbox-dark" {
+		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.Name)
 	}
 	if strings.Contains(got.View().Content, "Theme changed") {
 		t.Fatalf("theme success message should be hidden: %q", got.View().Content)
@@ -175,8 +176,8 @@ func TestThemePickerPreservesTransparentStyles(t *testing.T) {
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	got := next.(Model)
 
-	if got.themePicker.name != "gruvbox-dark" {
-		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.name)
+	if got.themePicker.Name != "gruvbox-dark" {
+		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.Name)
 	}
 	if containsEscape(got.View().Content, "48;2;") {
 		t.Fatalf("transparent theme switch should not paint backgrounds: %q", got.View().Content)
@@ -185,9 +186,9 @@ func TestThemePickerPreservesTransparentStyles(t *testing.T) {
 
 func TestThemePickerSavesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight", "kanagawa"}
+	model.themePicker.Names = []string{"tokyonight", "kanagawa"}
 	var saved string
-	model.deps.saveTheme = func(name string) error {
+	model.saveTheme = func(name string) error {
 		saved = name
 		return nil
 	}
@@ -203,12 +204,12 @@ func TestThemePickerSavesTheme(t *testing.T) {
 
 func TestThemePickerRendersAsOverlay(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
 	model.openThemePicker()
 
 	view := model.View().Content
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Themes", "Transparent background  ", "a.go", iconSelected + " tokyonight"} {
+	for _, want := range []string{"Themes", "Transparent background  ", "a.go", components.IconSelected + " tokyonight"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("theme overlay view missing %q in %q", want, view)
 		}
@@ -220,9 +221,9 @@ func TestThemePickerRendersAsOverlay(t *testing.T) {
 
 func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight"}
+	model.themePicker.Names = []string{"tokyonight"}
 	var saved *bool
-	model.deps.saveTransparent = func(value bool) error {
+	model.saveTransparent = func(value bool) error {
 		saved = &value
 		return nil
 	}
@@ -232,7 +233,7 @@ func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
 	got := next.(Model)
 
-	if !got.themePicker.transparent {
+	if !got.themePicker.Transparent {
 		t.Fatal("transparent row should enable transparent background")
 	}
 	if got.mode != modeThemePicker {
@@ -248,10 +249,10 @@ func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 
 func TestThemePickerTransparentRowEnterDoesNotToggleBackground(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight"}
-	model.themePicker.transparent = true
+	model.themePicker.Names = []string{"tokyonight"}
+	model.themePicker.Transparent = true
 	var saved *bool
-	model.deps.saveTransparent = func(value bool) error {
+	model.saveTransparent = func(value bool) error {
 		saved = &value
 		return nil
 	}
@@ -261,7 +262,7 @@ func TestThemePickerTransparentRowEnterDoesNotToggleBackground(t *testing.T) {
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	got := next.(Model)
 
-	if !got.themePicker.transparent {
+	if !got.themePicker.Transparent {
 		t.Fatal("enter on transparent row should not disable transparent background")
 	}
 	if got.mode != modeThemePicker {
@@ -284,9 +285,9 @@ func TestThemePickerRowsUsePanelColors(t *testing.T) {
 	})
 	model.openThemePicker()
 
-	row := findRenderedLine(model.renderThemePicker(), "  ayu")
+	row := findRenderedLine(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()), "  ayu")
 	if row == "" {
-		t.Fatalf("theme picker missing unselected row: %q", model.renderThemePicker())
+		t.Fatalf("theme picker missing unselected row: %q", model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 	}
 	for _, token := range []string{styleForegroundToken(model.styles.Diff), styleBackgroundToken(model.styles.Diff)} {
 		if token == "" || !strings.Contains(row, token) {
@@ -306,7 +307,7 @@ func TestOverlayUsesPanelBorderColor(t *testing.T) {
 		ThemeNames: []string{"solarized-light", "ayu"},
 	})
 	model.openThemePicker()
-	picker := model.renderThemePicker()
+	picker := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
 	panelBorder := styleForegroundToken(model.styles.Panel)
 	focusedBorder := styleForegroundToken(model.styles.PanelFocused)
 
@@ -329,7 +330,7 @@ func TestOverlayBorderUsesPanelBackground(t *testing.T) {
 		ThemeNames: []string{"github-light", "github-dark"},
 	})
 	model.openThemePicker()
-	picker := model.renderThemePicker()
+	picker := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
 	firstLine, _, _ := strings.Cut(picker, "\n")
 	panelBackground := styleBackgroundToken(model.styles.Panel)
 
@@ -341,17 +342,17 @@ func TestOverlayBorderUsesPanelBackground(t *testing.T) {
 func TestThemePickerScrollsToCursor(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.names = []string{
+	model.themePicker.Names = []string{
 		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
 		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
 		"theme-11", "theme-12", "theme-13", "theme-14", "theme-15",
 	}
-	model.themePicker.cursor = 13
+	model.themePicker.Cursor = 13
 	model.mode = modeThemePicker
 
-	view := ansi.Strip(model.renderThemePicker())
+	view := ansi.Strip(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 
-	if !strings.Contains(view, iconSelected+" theme-13") {
+	if !strings.Contains(view, components.IconSelected+" theme-13") {
 		t.Fatalf("theme picker should keep cursor visible: %q", view)
 	}
 	if strings.Contains(view, "theme-01") {
@@ -362,15 +363,15 @@ func TestThemePickerScrollsToCursor(t *testing.T) {
 func TestThemePickerShowsCurrentThemePosition(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.names = []string{
+	model.themePicker.Names = []string{
 		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
 		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
 		"theme-11", "theme-12", "theme-13", "theme-14", "theme-15",
 	}
-	model.themePicker.cursor = 13
+	model.themePicker.Cursor = 13
 	model.mode = modeThemePicker
 
-	view := ansi.Strip(model.renderThemePicker())
+	view := ansi.Strip(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 	lines := strings.Split(view, "\n")
 	if len(lines) < 2 {
 		t.Fatalf("theme picker view too short: %q", view)
@@ -384,11 +385,11 @@ func TestThemePickerShowsCurrentThemePosition(t *testing.T) {
 func TestThemePickerShowsSpaceToggleHintOnTransparentRow(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.names = []string{"tokyonight", "kanagawa"}
-	model.themePicker.cursor = 0
+	model.themePicker.Names = []string{"tokyonight", "kanagawa"}
+	model.themePicker.Cursor = 0
 	model.mode = modeThemePicker
 
-	view := ansi.Strip(model.renderThemePicker())
+	view := ansi.Strip(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 	lines := strings.Split(view, "\n")
 	if len(lines) < 2 {
 		t.Fatalf("theme picker view too short: %q", view)
@@ -398,8 +399,8 @@ func TestThemePickerShowsSpaceToggleHintOnTransparentRow(t *testing.T) {
 		t.Fatalf("theme picker footer should show space toggle hint on transparent row: %q", view)
 	}
 
-	model.themePicker.cursor = 1
-	view = ansi.Strip(model.renderThemePicker())
+	model.themePicker.Cursor = 1
+	view = ansi.Strip(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 	if strings.Contains(view, "space toggle") {
 		t.Fatalf("theme picker footer should hide space toggle hint away from transparent row: %q", view)
 	}
@@ -409,17 +410,17 @@ func TestThemePickerUsesTwoThirdsOverlayHeight(t *testing.T) {
 	model := testModel(t)
 	model.width = 120
 	model.height = 30
-	model.themePicker.names = []string{
+	model.themePicker.Names = []string{
 		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
 		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
 		"theme-11", "theme-12", "theme-13", "theme-14", "theme-15",
 		"theme-16", "theme-17", "theme-18", "theme-19", "theme-20",
 	}
-	model.themePicker.cursor = 1
+	model.themePicker.Cursor = 1
 	model.mode = modeThemePicker
 
-	overlay := model.renderThemePicker()
-	if got, want := lipgloss.Height(overlay), model.themePickerOverlayHeight(); got != want {
+	overlay := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
+	if got, want := lipgloss.Height(overlay), model.themePicker.OverlayHeight(model.bodyHeight()); got != want {
 		t.Fatalf("theme overlay height = %d, want %d", got, want)
 	}
 	if got, maxWidth := lipgloss.Width(overlay), model.width; got >= maxWidth {
@@ -430,48 +431,48 @@ func TestThemePickerUsesTwoThirdsOverlayHeight(t *testing.T) {
 func TestThemePickerMouseWheelScrollsRows(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.names = []string{
+	model.themePicker.Names = []string{
 		"theme-01", "theme-02", "theme-03", "theme-04", "theme-05",
 		"theme-06", "theme-07", "theme-08", "theme-09", "theme-10",
 	}
-	model.themePicker.cursor = 1
+	model.themePicker.Cursor = 1
 	model.mode = modeThemePicker
-	overlay := model.renderThemePicker()
-	x, y := model.overlayPosition(overlay)
+	overlay := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
+	x, y := components.OverlayPosition(overlay, model.width, model.bodyHeight())
 
 	next, _ := model.Update(tea.MouseWheelMsg{X: x + 2, Y: y + 2, Button: tea.MouseWheelDown})
 	got := next.(Model)
-	if got.themePicker.cursor != 2 {
-		t.Fatalf("theme cursor after wheel down = %d, want 2", got.themePicker.cursor)
+	if got.themePicker.Cursor != 2 {
+		t.Fatalf("theme cursor after wheel down = %d, want 2", got.themePicker.Cursor)
 	}
 
 	next, _ = got.Update(tea.MouseWheelMsg{X: x + 2, Y: y + 2, Button: tea.MouseWheelUp})
 	got = next.(Model)
-	if got.themePicker.cursor != 1 {
-		t.Fatalf("theme cursor after wheel up = %d, want 1", got.themePicker.cursor)
+	if got.themePicker.Cursor != 1 {
+		t.Fatalf("theme cursor after wheel up = %d, want 1", got.themePicker.Cursor)
 	}
 }
 
 func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.names = []string{
+	model.themePicker.Names = []string{
 		"ayu", "catppuccin", "dracula", "everforest", "gruvbox-dark",
 		"kanagawa", "monokai", "nord", "one-dark", "rose-pine",
 		"solarized-dark", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
 	}
-	model.themePicker.cursor = 8
+	model.themePicker.Cursor = 8
 	model.mode = modeThemePicker
-	model.deps.saveTheme = func(string) error { return nil }
-	overlay := model.renderThemePicker()
-	x, y := model.overlayPosition(overlay)
-	targetRow := 8 - model.themePickerOffset()
+	model.saveTheme = func(string) error { return nil }
+	overlay := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
+	x, y := components.OverlayPosition(overlay, model.width, model.bodyHeight())
+	targetRow := 8 - model.themePicker.Offset(model.bodyHeight())
 
 	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 2 + targetRow}))
 	got := next.(Model)
 
-	if got.themePicker.name != "nord" {
-		t.Fatalf("themeName = %q, want nord", got.themePicker.name)
+	if got.themePicker.Name != "nord" {
+		t.Fatalf("themeName = %q, want nord", got.themePicker.Name)
 	}
 }
 
@@ -502,7 +503,7 @@ func TestFooterShowsDescriptiveHints(t *testing.T) {
 	if strings.Contains(footer, "auto 5s") {
 		t.Fatalf("footer should not show auto-refresh interval: %q", footer)
 	}
-	for _, want := range []string{iconWorktree, iconKey, iconFile, iconEdit, iconTheme, iconQuit, " │ "} {
+	for _, want := range []string{components.IconWorktree, components.IconKey, components.IconFile, components.IconEdit, components.IconTheme, components.IconQuit, " │ "} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing status bar segment %q in %q", want, footer)
 		}
@@ -555,7 +556,7 @@ func TestFooterKeysUseFooterBackgroundOnly(t *testing.T) {
 	}
 	model := NewModel(Config{Theme: theme.NewStyles(tm)})
 
-	hint := model.footerHint("", "w", "wrap")
+	hint := model.footer.Hint(components.FooterHint{Key: "w", Label: "wrap"})
 	selectedBackground := styleBackgroundToken(model.styles.FileSelected)
 	footerBackground := styleBackgroundToken(model.styles.Footer)
 
@@ -576,7 +577,7 @@ func TestFooterHintSpacesUseFooterBackground(t *testing.T) {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	model := NewModel(Config{Theme: theme.NewStyles(tm)})
-	hint := model.footerHint(iconKey, "1/2/3", "panels")
+	hint := model.footer.Hint(components.FooterHint{Icon: components.IconKey, Key: "1/2/3", Label: "panels"})
 	background := styleBackgroundToken(model.styles.Footer)
 
 	if background == "" {
@@ -593,7 +594,7 @@ func TestPanelTitlePaddingUsesPanelBackground(t *testing.T) {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	model := NewModel(Config{Theme: theme.NewStyles(tm)})
-	top := model.renderPanelTop(model.styles.PanelFocused, true, "[3]-"+iconFile+" Diff", 40)
+	top := model.panel.RenderPanelTop(model.styles.PanelFocused, true, "[3]-"+components.IconFile+" Diff", 40)
 	background := styleBackgroundToken(model.styles.PanelFocused)
 
 	if background == "" {
@@ -611,7 +612,7 @@ func TestSelectedFileRowPreservesLineStatColors(t *testing.T) {
 	}
 	styles := theme.NewStyles(tm)
 	content := renderFileLineWithBackground(styles, gitview.FileChange{Path: "internal/tui/model.go", Status: gitview.Modified, Additions: 2, Deletions: 1}, "", styles.FileSelected.GetBackground())
-	row := renderScrollableListRow(styles.FileSelected, iconSelected+" ", content, 0, 60, false)
+	row := renderScrollableListRow(styles.FileSelected, components.IconSelected+" ", content, 0, 60, false)
 
 	for _, token := range []string{
 		styleForegroundToken(styles.Added),
@@ -637,7 +638,7 @@ func TestSelectedFileListPreservesLineStatColors(t *testing.T) {
 	model.selected = 0
 	model.refreshDiff()
 
-	files := model.renderFiles(48, 6)
+	files := model.fileListComponent().Render(model.styles, model.panel, model.focusedPane == paneFiles, 48, 6, model.fileBadge(), model.visibleOverlapCount())
 	for _, token := range []string{
 		styleForegroundToken(model.styles.Added),
 		styleForegroundToken(model.styles.Deleted),
@@ -695,7 +696,7 @@ func TestEmptyFileListMessageUsesPanelBackground(t *testing.T) {
 		Changes: nil,
 		Diffs:   map[string]string{},
 	})
-	files := model.renderFiles(36, 8)
+	files := model.fileListComponent().Render(model.styles, model.panel, model.focusedPane == paneFiles, 36, 8, model.fileBadge(), model.visibleOverlapCount())
 	background := styleBackgroundToken(model.styles.Panel)
 
 	if background == "" {
@@ -720,7 +721,7 @@ func TestFooterAlignsToRightEdge(t *testing.T) {
 	model := testModel(t)
 	model.width = 160
 
-	line := rightAlignText(model.footerText(), model.width)
+	line := components.RightAlignText(model.footerText(), model.width)
 
 	if got := lipgloss.Width(line); got != model.width {
 		t.Fatalf("right aligned footer width = %d, want %d", got, model.width)
@@ -731,7 +732,7 @@ func TestFooterAlignsToRightEdge(t *testing.T) {
 	if !strings.HasPrefix(line, " ") {
 		t.Fatalf("footer should have leading fill before text: %q", line)
 	}
-	if got := rightAlignText("abcdef", 3); got != "def" {
+	if got := components.RightAlignText("abcdef", 3); got != "def" {
 		t.Fatalf("narrow footer = %q, want def", got)
 	}
 }
@@ -742,7 +743,7 @@ func TestRenderedFooterLeadingPaddingUsesFooterBackground(t *testing.T) {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	model := NewModel(Config{Theme: theme.NewStyles(tm), Width: 120})
-	footer := model.renderFooter()
+	footer := model.footer.Render(model.width, model.footerText(), model.err)
 	background := styleBackgroundToken(model.styles.Footer)
 
 	if background == "" {
@@ -813,7 +814,7 @@ func TestSelectedRowsRenderVisiblePointer(t *testing.T) {
 	model.refreshDiff()
 
 	view := ansi.Strip(model.View().Content)
-	for _, want := range []string{iconSelected + "   " + iconBranch + " feature", iconSelected + " " + iconAdded + " b.go"} {
+	for _, want := range []string{components.IconSelected + "   " + components.IconBranch + " feature", components.IconSelected + " " + components.IconAdded + " b.go"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected row missing visible pointer %q in %q", want, view)
 		}
@@ -846,7 +847,7 @@ func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
 		model = next.(Model)
 	}
 	scrolled := ansi.Strip(model.View().Content)
-	if !strings.Contains(scrolled, iconSelected+" ly/long/path/that/needs/scrolling") {
+	if !strings.Contains(scrolled, components.IconSelected+" ly/long/path/that/needs/scrolling") {
 		t.Fatalf("horizontal scroll did not move file row: %q", scrolled)
 	}
 	if strings.Contains(scrolled, "…") {
@@ -880,17 +881,17 @@ func TestHorizontalScrollMovesFocusedFileLine(t *testing.T) {
 func TestDiffWrapToggleDisablesSoftWrap(t *testing.T) {
 	model := testModel(t)
 
-	if !model.diff.viewport.SoftWrap {
+	if !model.diff.SoftWrap() {
 		t.Fatal("diff wrap should be enabled by default")
 	}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "w", Code: 'w'}))
 	got := next.(Model)
 
-	if got.diff.viewport.SoftWrap {
+	if got.diff.SoftWrap() {
 		t.Fatal("w should disable diff wrap on first press")
 	}
-	if got.toast.Message != "diff wrap off" || got.toast.Kind != toastInfo {
+	if got.toast.Message != "diff wrap off" || got.toast.Kind != components.ToastInfo {
 		t.Fatalf("toast = %#v, want info diff wrap off", got.toast)
 	}
 	if !strings.Contains(got.View().Content, "diff wrap off") {
@@ -901,27 +902,27 @@ func TestDiffWrapToggleDisablesSoftWrap(t *testing.T) {
 func TestToastHelpersSetTypedVariants(t *testing.T) {
 	model := testModel(t)
 
-	infoCmd := model.showToast("saved config")
+	infoCmd := model.toast.Info("saved config")
 	if infoCmd == nil {
 		t.Fatal("info toast should return expiration command")
 	}
-	if model.toast.Message != "saved config" || model.toast.Kind != toastInfo {
+	if model.toast.Message != "saved config" || model.toast.Kind != components.ToastInfo {
 		t.Fatalf("info toast = %#v, want info saved config", model.toast)
 	}
 
-	errorCmd := model.showErrorToast("editor failed")
+	errorCmd := model.toast.Error("editor failed")
 	if errorCmd == nil {
 		t.Fatal("error toast should return expiration command")
 	}
-	if model.toast.Message != "editor failed" || model.toast.Kind != toastError {
+	if model.toast.Message != "editor failed" || model.toast.Kind != components.ToastError {
 		t.Fatalf("error toast = %#v, want error editor failed", model.toast)
 	}
 
-	successCmd := model.showSuccessToast("deleted feature")
+	successCmd := model.toast.Success("deleted feature")
 	if successCmd == nil {
 		t.Fatal("success toast should return expiration command")
 	}
-	if model.toast.Message != "deleted feature" || model.toast.Kind != toastSuccess {
+	if model.toast.Message != "deleted feature" || model.toast.Kind != components.ToastSuccess {
 		t.Fatalf("success toast = %#v, want success deleted feature", model.toast)
 	}
 }
@@ -930,7 +931,7 @@ func TestToastRendersAsVariantOverlay(t *testing.T) {
 	model := testModel(t)
 	model.width = 100
 	model.height = 24
-	model.showErrorToast("editor failed: boom")
+	model.toast.Error("editor failed: boom")
 
 	view := ansi.Strip(model.View().Content)
 
@@ -939,7 +940,7 @@ func TestToastRendersAsVariantOverlay(t *testing.T) {
 			t.Fatalf("toast overlay missing %q in %q", want, view)
 		}
 	}
-	if strings.Contains(view, iconStatus+" editor failed: boom") {
+	if strings.Contains(view, components.IconStatus+" editor failed: boom") {
 		t.Fatalf("toast should not render as compact status text: %q", view)
 	}
 }
@@ -955,8 +956,8 @@ func TestToastFrameUsesPanelColors(t *testing.T) {
 		Width:     100,
 		Height:    24,
 	})
-	model.showToast("line numbers off")
-	toast := model.renderToastBox()
+	model.toast.Info("line numbers off")
+	toast := model.toast.RenderBox(model.styles, model.overlayPanelStyle(), model.width)
 	firstLine, _, _ := strings.Cut(toast, "\n")
 	panelBorder := styleForegroundToken(model.styles.Panel)
 	panelBackground := styleBackgroundToken(model.styles.Panel)
@@ -984,7 +985,7 @@ func TestToastExpires(t *testing.T) {
 		t.Fatal("expected toast after wrap toggle")
 	}
 
-	next, _ = model.Update(toastExpiredMsg{id: model.toastID})
+	next, _ = model.Update(components.ToastExpiredMsg{ID: model.toast.ID()})
 	model = next.(Model)
 	if model.toast.Message != "" {
 		t.Fatalf("toast = %#v, want empty after expiration", model.toast)
@@ -1008,13 +1009,13 @@ func TestDiffPaneSupportsHorizontalScrollWhenWrapIsOff(t *testing.T) {
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
 	model = next.(Model)
 
-	if got := model.diff.viewport.XOffset(); got == 0 {
+	if got := model.diff.XOffset(); got == 0 {
 		t.Fatal("l should scroll diff viewport right when wrap is off")
 	}
 
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
 	model = next.(Model)
-	if got := model.diff.viewport.XOffset(); got != 0 {
+	if got := model.diff.XOffset(); got != 0 {
 		t.Fatalf("h should scroll diff viewport left, got x offset %d", got)
 	}
 }
@@ -1023,10 +1024,10 @@ func TestLineNumbersRenderByDefault(t *testing.T) {
 	model := testModel(t)
 	model.setDiffContent("diff --git a/a.go b/a.go\n@@ -10,2 +20,2 @@ func main() {\n unchanged\n-old\n+new")
 
-	if !model.diff.showLineNumbers {
+	if !model.diff.ShowLineNumbers() {
 		t.Fatal("line numbers should be enabled by default")
 	}
-	view := ansi.Strip(model.renderDiffViewportContent())
+	view := ansi.Strip(model.diff.RenderContent())
 	for _, want := range []string{"   20 │  unchanged", "  -11 │ -old", "   21 │ +new"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("line number gutter missing %q in %q", want, view)
@@ -1041,14 +1042,14 @@ func TestLineNumberToggleHidesGutter(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
 	model = next.(Model)
 
-	if model.diff.showLineNumbers {
+	if model.diff.ShowLineNumbers() {
 		t.Fatal("n should disable line numbers on first press")
 	}
-	view := ansi.Strip(model.renderDiffViewportContent())
+	view := ansi.Strip(model.diff.RenderContent())
 	if strings.Contains(view, "1 │") {
 		t.Fatalf("line number gutter should be hidden: %q", view)
 	}
-	if model.toast.Message != "line numbers off" || model.toast.Kind != toastInfo {
+	if model.toast.Message != "line numbers off" || model.toast.Kind != components.ToastInfo {
 		t.Fatalf("toast = %#v, want info line numbers off", model.toast)
 	}
 }
@@ -1057,11 +1058,11 @@ func TestLineNumberGutterKeepsWrappedContinuationAligned(t *testing.T) {
 	model := testModel(t)
 	model.width = 72
 	model.height = 20
-	model.setDiffContent("@@ -1,1 +1,1 @@\n+" + strings.Repeat("x", model.diffTextWidth(model.diff.viewport.Width())) + "tail")
+	model.setDiffContent("@@ -1,1 +1,1 @@\n+" + strings.Repeat("x", model.diff.TextWidth(model.diff.Width())) + "tail")
 
-	lines := strings.Split(ansi.Strip(model.renderDiffViewportContent()), "\n")
+	lines := strings.Split(ansi.Strip(model.diff.RenderContent()), "\n")
 	if len(lines) < 3 {
-		t.Fatalf("expected wrapped numbered diff: %q", model.renderDiffViewportContent())
+		t.Fatalf("expected wrapped numbered diff: %q", model.diff.RenderContent())
 	}
 	if !strings.Contains(lines[1], "    1 │ +") {
 		t.Fatalf("first wrapped line missing new line number gutter: %q", lines[1])
@@ -1069,14 +1070,14 @@ func TestLineNumberGutterKeepsWrappedContinuationAligned(t *testing.T) {
 	if strings.Contains(lines[2], "1 │") {
 		t.Fatalf("continuation line should not repeat line number: %q", lines[2])
 	}
-	if !strings.HasPrefix(lines[2], strings.Repeat(" ", model.diffGutterWidth())) {
+	if !strings.HasPrefix(lines[2], strings.Repeat(" ", model.diff.GutterWidth())) {
 		t.Fatalf("continuation line should keep blank gutter: %q", lines[2])
 	}
 }
 
 func TestDiffAddsSpacerBeforeLaterHunksInSameFile(t *testing.T) {
 	model := testModel(t)
-	model.diff.showLineNumbers = false
+	model.diff.ToggleLineNumbers()
 	model.setDiffContent(strings.Join([]string{
 		"diff --git a/a.go b/a.go",
 		"@@ -1,1 +1,1 @@ func a()",
@@ -1091,7 +1092,7 @@ func TestDiffAddsSpacerBeforeLaterHunksInSameFile(t *testing.T) {
 		"+new",
 	}, "\n"))
 
-	viewLines := strings.Split(ansi.Strip(model.renderDiffViewportContent()), "\n")
+	viewLines := strings.Split(ansi.Strip(model.diff.RenderContent()), "\n")
 	trimmed := make([]string, 0, len(viewLines))
 	for _, line := range viewLines {
 		trimmed = append(trimmed, strings.TrimRight(line, " "))
@@ -1134,9 +1135,9 @@ func TestDiffViewportFillsEmptyRowsWithDiffBackground(t *testing.T) {
 	model.height = 24
 	model.refreshDiff()
 
-	lines := strings.Split(model.renderDiffViewportContent(), "\n")
+	lines := strings.Split(model.diff.RenderContent(), "\n")
 	if len(lines) < 10 {
-		t.Fatalf("viewport rendered too few lines: %q", model.renderDiffViewportContent())
+		t.Fatalf("viewport rendered too few lines: %q", model.diff.RenderContent())
 	}
 
 	emptyLine := lines[len(lines)-1]
@@ -1151,7 +1152,7 @@ func TestDiffViewportFillsShortRowsBeforeReset(t *testing.T) {
 	model.height = 24
 	model.setDiffContent("short")
 
-	line := strings.Split(model.renderDiffViewportContent(), "\n")[0]
+	line := strings.Split(model.diff.RenderContent(), "\n")[0]
 	if strings.Contains(line, "short\x1b[m ") {
 		t.Fatalf("short diff row resets before padding spaces: %q", line)
 	}
@@ -1165,16 +1166,16 @@ func TestDiffWrappedTailFillsToViewportWidthWithLineBackground(t *testing.T) {
 	model.width = 90
 	model.height = 24
 	model.refreshDiff()
-	model.setDiffContent("-" + strings.Repeat("x", model.diff.viewport.Width()) + "}}")
+	model.setDiffContent("-" + strings.Repeat("x", model.diff.Width()) + "}}")
 
-	lines := strings.Split(model.renderDiffViewportContent(), "\n")
+	lines := strings.Split(model.diff.RenderContent(), "\n")
 	if len(lines) < 2 {
-		t.Fatalf("expected wrapped diff tail line: %q", model.renderDiffViewportContent())
+		t.Fatalf("expected wrapped diff tail line: %q", model.diff.RenderContent())
 	}
 	filled := lines[1]
 
-	if got := lipgloss.Width(filled); got != model.diff.viewport.Width() {
-		t.Fatalf("filled width = %d, want %d: %q", got, model.diff.viewport.Width(), filled)
+	if got := lipgloss.Width(filled); got != model.diff.Width() {
+		t.Fatalf("filled width = %d, want %d: %q", got, model.diff.Width(), filled)
 	}
 	if !strings.Contains(filled, styleBackgroundToken(model.styles.DiffDeletion)) {
 		t.Fatalf("wrapped deletion tail should keep deletion background: %q", filled)
@@ -1195,7 +1196,7 @@ func TestDiffHunkHeaderColorsLineRanges(t *testing.T) {
 		" unchanged",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	addedToken := styleForegroundToken(model.styles.Added)
 	deletedToken := styleForegroundToken(model.styles.Deleted)
 
@@ -1232,7 +1233,7 @@ func TestDiffSyntaxHighlightsStaticKeywords(t *testing.T) {
 		"}",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
 
 	if keywordToken == "" || !strings.Contains(view, keywordToken) {
@@ -1262,7 +1263,7 @@ func TestDiffSyntaxTrimsHeaderPathWhitespace(t *testing.T) {
 		"+func main() {}",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
 
 	if keywordToken == "" || !strings.Contains(view, keywordToken) {
@@ -1281,7 +1282,7 @@ func TestDiffSyntaxSkipsNonCodeFiles(t *testing.T) {
 		"+true return class function should read as plain text",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
 
 	if keywordToken != "" && strings.Contains(view, keywordToken) {
@@ -1303,7 +1304,7 @@ func TestDiffSyntaxHighlightsNonGoCodeFiles(t *testing.T) {
 		"+export function render() { return true }",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
 
 	if keywordToken == "" || !strings.Contains(view, keywordToken) {
@@ -1327,7 +1328,7 @@ func TestDiffSyntaxDoesNotHighlightKeywordFragments(t *testing.T) {
 		"+constellation functionality letter variable",
 	}, "\n"))
 
-	view := model.renderDiffViewportContent()
+	view := model.diff.RenderContent()
 	keywordToken := foregroundOnlyToken(model.styles.DiffKeyword)
 
 	if keywordToken != "" && strings.Contains(view, keywordToken) {
@@ -1354,11 +1355,11 @@ func TestRefreshDiffKeepsViewportWhenContentIsUnchanged(t *testing.T) {
 	model.changes = []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}}
 	model.diffs = map[string]string{"a.go": diff}
 	model.refreshDiff()
-	model.diff.viewport.SetYOffset(4)
+	model.diff.SetYOffset(4)
 
 	model.refreshDiff()
 
-	if got := model.diff.viewport.YOffset(); got != 4 {
+	if got := model.diff.YOffset(); got != 4 {
 		t.Fatalf("refreshDiff with unchanged content should keep y offset = %d, want 4", got)
 	}
 }
@@ -1389,12 +1390,12 @@ func TestRefreshDiffResetsViewportWhenSelectionChangesToSameContent(t *testing.T
 	}
 	model.selected = 0
 	model.refreshDiff()
-	model.diff.viewport.SetYOffset(4)
+	model.diff.SetYOffset(4)
 
 	model.selected = 1
 	model.refreshDiff()
 
-	if got := model.diff.viewport.YOffset(); got != 0 {
+	if got := model.diff.YOffset(); got != 0 {
 		t.Fatalf("selection change with same diff content y offset = %d, want 0", got)
 	}
 }
@@ -1442,7 +1443,7 @@ func TestOverlapTargetsDetectSamePathAndExcludeCurrentWorktree(t *testing.T) {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 
-	targets := model.overlapTargetsFor(model.Selected())
+	targets := model.overlapTargetsFor(model.selectedFileValue())
 
 	if len(targets) != 1 {
 		t.Fatalf("overlapTargetsFor() len = %d, want 1: %#v", len(targets), targets)
@@ -1467,7 +1468,7 @@ func TestOverlapTargetsIncludeRenameOldPath(t *testing.T) {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 
-	targets := model.overlapTargetsFor(model.Selected())
+	targets := model.overlapTargetsFor(model.selectedFileValue())
 
 	if len(targets) != 1 {
 		t.Fatalf("rename old path should overlap, got %#v", targets)
@@ -1499,9 +1500,9 @@ func TestFilesListRendersOverlapMarkerAndCount(t *testing.T) {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 
-	plain := ansi.Strip(model.renderFiles(58, 8))
+	plain := ansi.Strip(model.fileListComponent().Render(model.styles, model.panel, model.focusedPane == paneFiles, 58, 8, model.fileBadge(), model.visibleOverlapCount()))
 
-	for _, want := range []string{"[2]-", "2 files", "2 overlaps", iconWarning, "internal/tui/model.go", "overlap 2"} {
+	for _, want := range []string{"[2]-", "2 files", "2 overlaps", components.IconWarning, "internal/tui/model.go", "overlap 2"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("files list missing %q in %q", want, plain)
 		}
@@ -1539,7 +1540,7 @@ func TestOverlapKeyOpensPickerOnlyForOverlappedFile(t *testing.T) {
 	if got.mode == modeOverlapPicker {
 		t.Fatal("non-overlapped file should not open picker")
 	}
-	if got.toast.Message != "no overlaps for selected file" || got.toast.Kind != toastInfo {
+	if got.toast.Message != "no overlaps for selected file" || got.toast.Kind != components.ToastInfo {
 		t.Fatalf("toast = %#v, want no overlaps info", got.toast)
 	}
 }
@@ -1572,15 +1573,15 @@ func TestOverlapPickerEnterOpensCompareAndEscRestoresNormalDiff(t *testing.T) {
 		}
 	}
 
-	got.diff.viewport.SetYOffset(3)
+	got.diff.SetYOffset(3)
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
 	got = next.(Model)
 
 	if got.mode == modeOverlapCompare || got.mode == modeOverlapPicker {
 		t.Fatal("esc should close overlap modal state")
 	}
-	if got.selectedWorktreeValue().Branch != "main" || got.Selected().Path != "a.go" {
-		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.selectedWorktreeValue(), got.Selected())
+	if got.selectedWorktreeValue().Branch != "main" || got.selectedFileValue().Path != "a.go" {
+		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.selectedWorktreeValue(), got.selectedFileValue())
 	}
 }
 
@@ -1617,8 +1618,8 @@ func TestOverlapPickerEscClosesWithoutChangingSelection(t *testing.T) {
 	if got.mode == modeOverlapPicker || got.mode == modeOverlapCompare {
 		t.Fatal("esc should close picker")
 	}
-	if got.selectedWorktreeValue().Branch != "main" || got.Selected().Path != "a.go" {
-		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.selectedWorktreeValue(), got.Selected())
+	if got.selectedWorktreeValue().Branch != "main" || got.selectedFileValue().Path != "a.go" {
+		t.Fatalf("esc changed selection: worktree=%#v selected=%#v", got.selectedWorktreeValue(), got.selectedFileValue())
 	}
 }
 
@@ -1626,8 +1627,8 @@ func TestCompareScrollKeysMoveSharedOffsets(t *testing.T) {
 	model := overlapTestModel(t)
 	model.height = 8
 	longLine := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 4)
-	model.diffs[model.diffKey(model.Selected())] = "diff --git a/a.go b/a.go\n@@ -1,12 +1,12 @@\n line-1\n line-2\n line-3\n line-4\n line-5\n line-6\n line-7\n line-8\n+" + longLine
-	model.deps.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
+	model.diffs[model.diffKey(model.selectedFileValue())] = "diff --git a/a.go b/a.go\n@@ -1,12 +1,12 @@\n line-1\n line-2\n line-3\n line-4\n line-5\n line-6\n line-7\n line-8\n+" + longLine
+	model.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n@@ -1 +1 @@\n+" + longLine + worktreePath
 	}
 	model.refreshDiff()
@@ -1643,7 +1644,7 @@ func TestCompareScrollKeysMoveSharedOffsets(t *testing.T) {
 		t.Fatal("j should scroll compare overlay down")
 	}
 
-	model.diff.viewport.SoftWrap = false
+	model.diff.ToggleWrap()
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
 	model = next.(Model)
 	if model.overlap.compareXOffset == 0 {
@@ -1668,7 +1669,7 @@ func TestWorktreeLineOmitsShortcutAndChangeCount(t *testing.T) {
 	if strings.Contains(plain, "3") || strings.Contains(plain, "4") || strings.Contains(plain, "7") {
 		t.Fatalf("worktree line should not include shortcut or change count: %q", plain)
 	}
-	if !strings.Contains(plain, iconBranch+" feature") {
+	if !strings.Contains(plain, components.IconBranch+" feature") {
 		t.Fatalf("worktree line missing branch label: %q", plain)
 	}
 }
@@ -1679,7 +1680,7 @@ func TestProtectedWorktreeLineShowsLock(t *testing.T) {
 		Worktree: gitview.Worktree{Branch: "main", Protected: true},
 	})
 
-	if !strings.Contains(ansi.Strip(line), iconProtected+" "+iconBranch+" main") {
+	if !strings.Contains(ansi.Strip(line), components.IconProtected+" "+components.IconBranch+" main") {
 		t.Fatalf("protected worktree line should show lock: %q", line)
 	}
 }
@@ -1737,7 +1738,7 @@ func TestDeleteKeyBlocksProtectedWorktree(t *testing.T) {
 	if got.mode == modeDeleteConfirm {
 		t.Fatal("protected delete should not open confirm dialog")
 	}
-	if !strings.Contains(got.toast.Message, "protected") || got.toast.Kind != toastError {
+	if !strings.Contains(got.toast.Message, "protected") || got.toast.Kind != components.ToastError {
 		t.Fatalf("toast = %#v, want protected error", got.toast)
 	}
 }
@@ -1761,7 +1762,7 @@ func TestMergeKeyBlocksDefaultBranchSource(t *testing.T) {
 	if got.mode == modeMergeTarget {
 		t.Fatal("default branch should not open merge target picker")
 	}
-	if got.toast.Kind != toastInfo || !strings.Contains(got.toast.Message, "default branch") {
+	if got.toast.Kind != components.ToastInfo || !strings.Contains(got.toast.Message, "default branch") {
 		t.Fatalf("toast = %#v, want default branch info", got.toast)
 	}
 }
@@ -1786,9 +1787,8 @@ func TestMergeKeyOpensTargetListWithDefaultBranchSelected(t *testing.T) {
 	if got.mode != modeMergeTarget {
 		t.Fatal("m should open merge target picker")
 	}
-	selected, ok := got.merge.targetList.SelectedItem().(mergeTargetItem)
-	if !ok || selected.worktree.Branch != "main" {
-		t.Fatalf("selected merge target = %#v, want main", got.merge.targetList.SelectedItem())
+	if got.merge.selectedTargetPath() != "/repo" {
+		t.Fatalf("selected merge target = %q, want /repo", got.merge.selectedTargetPath())
 	}
 	view := ansi.Strip(got.View().Content)
 	for _, want := range []string{"Merge into", "main", "dev"} {
@@ -1811,11 +1811,11 @@ func TestMergeTargetPickerMarksSelectionAndDoesNotWrapRows(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	model = next.(Model)
-	view := model.renderMergeTargetPicker()
+	view := model.merge.picker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
 	lines := strings.Split(view, "\n")
 	maxWidth := lipgloss.Width(lines[0])
 
-	if !strings.Contains(ansi.Strip(view), iconSelected) {
+	if !strings.Contains(ansi.Strip(view), components.IconSelected) {
 		t.Fatalf("merge target picker should mark selected target: %q", ansi.Strip(view))
 	}
 	if !strings.Contains(ansi.Strip(view), "From: source  >  Target: demo/single-tes") {
@@ -1842,13 +1842,13 @@ func TestMergeTargetPickerHeaderFollowsSelectedTarget(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	model = next.(Model)
-	if got := ansi.Strip(model.renderMergeTargetPicker()); !strings.Contains(got, "From: source  >  Target: main") {
+	if got := ansi.Strip(model.merge.picker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())); !strings.Contains(got, "From: source  >  Target: main") {
 		t.Fatalf("initial merge target header = %q, want main target", got)
 	}
 
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
 	model = next.(Model)
-	if got := ansi.Strip(model.renderMergeTargetPicker()); !strings.Contains(got, "From: source  >  Target: dev") {
+	if got := ansi.Strip(model.merge.picker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())); !strings.Contains(got, "From: source  >  Target: dev") {
 		t.Fatalf("updated merge target header = %q, want dev target", got)
 	}
 }
@@ -1862,7 +1862,7 @@ func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 	var gotReq MergeRequest
-	model.deps.mergeBranch = func(_ context.Context, req MergeRequest) error {
+	model.mergeBranch = func(_ context.Context, req MergeRequest) error {
 		gotReq = req
 		return nil
 	}
@@ -1880,7 +1880,7 @@ func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 		t.Fatal("merge confirmation should close target picker")
 	}
 	view := ansi.Strip(got.View().Content)
-	for _, want := range []string{"Merge feature into main", "Target worktree will be updated first.", "Dirty files and conflicts will be checked before merging.", "[Enter] merge", "[Esc] cancel"} {
+	for _, want := range []string{"Merge feature into main", "Target worktree will be updated first.", "Dirty files and conflicts will be checked before merging.", "[Y]es", "[N]o"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("merge confirm view missing %q: %q", want, view)
 		}
@@ -1899,7 +1899,7 @@ func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	if got.mode == modeMergeConfirm || got.mode == modeMergeTarget {
 		t.Fatal("successful merge should close merge overlays")
 	}
-	if got.toast.Kind != toastSuccess || !strings.Contains(got.toast.Message, "merged feature into main") {
+	if got.toast.Kind != components.ToastSuccess || !strings.Contains(got.toast.Message, "merged feature into main") {
 		t.Fatalf("toast = %#v, want merge success", got.toast)
 	}
 }
@@ -1908,57 +1908,53 @@ func TestMergeConfirmDoesNotWrapLongBranchNames(t *testing.T) {
 	model := testModel(t)
 	model.width = 58
 	model.mode = modeMergeConfirm
-	model.merge.request = MergeRequest{
+	model.merge.openConfirm(MergeRequest{
 		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: strings.Repeat("feature-", 12)},
 		Target: gitview.Worktree{Path: "/repo", Branch: strings.Repeat("main-", 12)},
-	}
+	})
+	title, message := mergeConfirmText(model.merge.request)
+	model.confirm.Open(title, message)
 
-	longHeight := lipgloss.Height(model.renderMergeConfirm())
-	model.merge.request = MergeRequest{
+	longHeight := lipgloss.Height(model.confirm.Render())
+	model.merge.openConfirm(MergeRequest{
 		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"},
 		Target: gitview.Worktree{Path: "/repo", Branch: "main"},
-	}
-	shortHeight := lipgloss.Height(model.renderMergeConfirm())
+	})
+	title, message = mergeConfirmText(model.merge.request)
+	model.confirm.Open(title, message)
+	shortHeight := lipgloss.Height(model.confirm.Render())
 
 	if longHeight != shortHeight {
 		t.Fatalf("long merge confirmation height = %d, want %d; overlay should stay one line instead of wrapping", longHeight, shortHeight)
 	}
 }
 
-func TestMergeConfirmScrollsLongBranchNamesHorizontally(t *testing.T) {
+func TestMergeConfirmIgnoresHorizontalScrollKeys(t *testing.T) {
 	model := testModel(t)
 	model.width = 58
 	model.mode = modeMergeConfirm
-	model.merge.request = MergeRequest{
+	model.merge.openConfirm(MergeRequest{
 		Source: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: strings.Repeat("feature-", 12) + "unique-tail"},
 		Target: gitview.Worktree{Path: "/repo", Branch: "main"},
-	}
-	before := ansi.Strip(model.renderMergeConfirm())
+	})
+	title, message := mergeConfirmText(model.merge.request)
+	model.confirm.Open(title, message)
+	before := ansi.Strip(model.confirm.Render())
 	if strings.Contains(before, "unique-tail") {
-		t.Fatalf("initial merge confirmation unexpectedly shows tail before scrolling: %q", before)
+		t.Fatalf("merge confirmation unexpectedly shows truncated tail: %q", before)
 	}
 
 	for range 20 {
 		next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
 		if cmd != nil {
-			t.Fatal("merge confirm horizontal scroll should not return command")
+			t.Fatal("merge confirm horizontal key should not return command")
 		}
 		model = next.(Model)
 	}
 
-	if model.merge.confirmScrollX == 0 {
-		t.Fatal("merge confirm scroll offset should move right")
-	}
-	after := ansi.Strip(model.renderMergeConfirm())
-	if !strings.Contains(after, "unique-tail") {
-		t.Fatalf("scrolled merge confirmation missing tail: %q", after)
-	}
-
-	rightOffset := model.merge.confirmScrollX
-	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
-	model = next.(Model)
-	if model.merge.confirmScrollX >= rightOffset {
-		t.Fatalf("merge confirm scroll offset = %d, want less than %d after left scroll", model.merge.confirmScrollX, rightOffset)
+	after := ansi.Strip(model.confirm.Render())
+	if after != before {
+		t.Fatalf("horizontal key changed generic confirm view: before=%q after=%q", before, after)
 	}
 }
 
@@ -1970,7 +1966,7 @@ func TestMergeConfirmEscCancelsMerge(t *testing.T) {
 	}
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
-	model.deps.mergeBranch = func(context.Context, MergeRequest) error {
+	model.mergeBranch = func(context.Context, MergeRequest) error {
 		t.Fatal("cancel should not run merge")
 		return nil
 	}
@@ -1996,7 +1992,7 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 	}
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
-	model.deps.mergeBranch = func(context.Context, MergeRequest) error { return nil }
+	model.mergeBranch = func(context.Context, MergeRequest) error { return nil }
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
@@ -2010,7 +2006,7 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 	if duplicate != nil {
 		t.Fatal("duplicate merge enter should be ignored while merge is in flight")
 	}
-	if !got.merge.merging {
+	if !got.confirm.IsSubmitting() {
 		t.Fatal("merge should remain in flight until command finishes")
 	}
 }
@@ -2018,7 +2014,7 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
-	model.deps.findForgeCLI = func() (string, bool) { return "", false }
+	model.findForgeCLI = func() (string, bool) { return "", false }
 
 	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	got := next.(Model)
@@ -2029,7 +2025,7 @@ func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
 	if got.mode == modePRForm {
 		t.Fatal("missing Forge CLI should not open PR form")
 	}
-	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "gh or glab") {
+	if got.toast.Kind != components.ToastError || !strings.Contains(got.toast.Message, "gh or glab") {
 		t.Fatalf("toast = %#v, want gh/glab error", got.toast)
 	}
 }
@@ -2037,7 +2033,7 @@ func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
 func TestPRKeyOpensFormWhenForgeCLIExists(t *testing.T) {
 	model := testModel(t)
 	model.focusedPane = paneWorktrees
-	model.deps.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
 
 	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	got := next.(Model)
@@ -2068,7 +2064,7 @@ func TestPRFormInputsUseThemeColors(t *testing.T) {
 		}},
 	})
 	model.focusedPane = paneWorktrees
-	model.deps.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	got := next.(Model)
@@ -2079,8 +2075,8 @@ func TestPRFormInputsUseThemeColors(t *testing.T) {
 		t.Fatal("theme tokens should not be empty")
 	}
 	for name, view := range map[string]string{
-		"title": got.pr.title.View(),
-		"body":  got.pr.body.View(),
+		"title": got.pr.TitleView(),
+		"body":  got.pr.BodyView(),
 	} {
 		if !strings.Contains(view, background) {
 			t.Fatalf("PR %s input should use panel background %q in %q", name, background, view)
@@ -2089,7 +2085,7 @@ func TestPRFormInputsUseThemeColors(t *testing.T) {
 			t.Fatalf("PR %s placeholder should use muted foreground %q in %q", name, muted, view)
 		}
 	}
-	for _, line := range strings.Split(got.pr.body.View(), "\n") {
+	for _, line := range strings.Split(got.pr.BodyView(), "\n") {
 		if !strings.Contains(line, background) {
 			t.Fatalf("PR body line should use panel background %q in %q", background, line)
 		}
@@ -2098,14 +2094,14 @@ func TestPRFormInputsUseThemeColors(t *testing.T) {
 
 func TestPRFormTabTogglesFocusAndEscCloses(t *testing.T) {
 	model := testModel(t)
-	model.deps.findForgeCLI = func() (string, bool) { return "glab", true }
+	model.findForgeCLI = func() (string, bool) { return "glab", true }
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	model = next.(Model)
 
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	model = next.(Model)
-	if model.pr.focus != prBody {
-		t.Fatalf("pr focus = %v, want body", model.pr.focus)
+	if model.pr.Focus() != components.PRBody {
+		t.Fatalf("pr focus = %v, want body", model.pr.Focus())
 	}
 
 	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
@@ -2117,7 +2113,7 @@ func TestPRFormTabTogglesFocusAndEscCloses(t *testing.T) {
 
 func TestPRFormSubmitRequiresTitle(t *testing.T) {
 	model := testModel(t)
-	model.deps.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	model = next.(Model)
 
@@ -2130,7 +2126,7 @@ func TestPRFormSubmitRequiresTitle(t *testing.T) {
 	if got.mode != modePRForm {
 		t.Fatal("empty PR title should keep PR form open")
 	}
-	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "PR title is required") {
+	if got.toast.Kind != components.ToastError || !strings.Contains(got.toast.Message, "PR title is required") {
 		t.Fatalf("toast = %#v, want PR title required", got.toast)
 	}
 }
@@ -2142,17 +2138,17 @@ func TestPRFormSubmitCreatesPullRequest(t *testing.T) {
 	}
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
-	model.deps.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
 	var gotReq PullRequestRequest
-	model.deps.createPullRequest = func(_ context.Context, req PullRequestRequest) error {
+	model.createPullRequest = func(_ context.Context, req PullRequestRequest) error {
 		gotReq = req
 		return nil
 	}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	model = next.(Model)
-	model.pr.title.SetValue("Add PR creator")
-	model.pr.body.SetValue("Creates a pull request from the selected worktree.")
+	model.pr.SetTitle("Add PR creator")
+	model.pr.SetBody("Creates a pull request from the selected worktree.")
 	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("PR submit should return create command")
@@ -2169,19 +2165,19 @@ func TestPRFormSubmitCreatesPullRequest(t *testing.T) {
 	if got.mode == modePRForm {
 		t.Fatal("successful PR create should close form")
 	}
-	if got.toast.Kind != toastSuccess || got.toast.Message != "PR/MR created" {
+	if got.toast.Kind != components.ToastSuccess || got.toast.Message != "PR/MR created" {
 		t.Fatalf("toast = %#v, want PR/MR created success", got.toast)
 	}
 }
 
 func TestPRFormSubmitIgnoresDuplicateWhileInFlight(t *testing.T) {
 	model := testModel(t)
-	model.deps.findForgeCLI = func() (string, bool) { return "gh", true }
-	model.deps.createPullRequest = func(context.Context, PullRequestRequest) error { return nil }
+	model.findForgeCLI = func() (string, bool) { return "gh", true }
+	model.createPullRequest = func(context.Context, PullRequestRequest) error { return nil }
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	model = next.(Model)
-	model.pr.title.SetValue("Add PR creator")
+	model.pr.SetTitle("Add PR creator")
 	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("first PR submit should return command")
@@ -2192,21 +2188,21 @@ func TestPRFormSubmitIgnoresDuplicateWhileInFlight(t *testing.T) {
 	if duplicate != nil {
 		t.Fatal("duplicate PR submit should be ignored while create is in flight")
 	}
-	if !got.pr.submitting {
+	if !got.pr.IsSubmitting() {
 		t.Fatal("PR should remain submitting until command finishes")
 	}
 }
 
 func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
 	model := testModel(t)
-	model.deps.findForgeCLI = func() (string, bool) { return "glab", true }
-	model.deps.createPullRequest = func(context.Context, PullRequestRequest) error {
+	model.findForgeCLI = func() (string, bool) { return "glab", true }
+	model.createPullRequest = func(context.Context, PullRequestRequest) error {
 		return errors.New("not authenticated")
 	}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
 	model = next.(Model)
-	model.pr.title.SetValue("Add MR creator")
+	model.pr.SetTitle("Add MR creator")
 	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("PR submit should return create command")
@@ -2217,10 +2213,10 @@ func TestPRFormSubmitFailureKeepsFormOpen(t *testing.T) {
 	if got.mode != modePRForm {
 		t.Fatal("failed PR create should keep form open")
 	}
-	if got.toast.Kind != toastError || !strings.Contains(got.toast.Message, "not authenticated") {
+	if got.toast.Kind != components.ToastError || !strings.Contains(got.toast.Message, "not authenticated") {
 		t.Fatalf("toast = %#v, want auth error", got.toast)
 	}
-	if got.pr.submitting {
+	if got.pr.IsSubmitting() {
 		t.Fatal("failed PR create should clear submitting state")
 	}
 }
@@ -2234,7 +2230,7 @@ func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 	var deleted gitview.Worktree
-	model.deps.deleteWorktree = func(_ context.Context, worktree gitview.Worktree) error {
+	model.deleteWorktree = func(_ context.Context, worktree gitview.Worktree) error {
 		deleted = worktree
 		return nil
 	}
@@ -2254,7 +2250,7 @@ func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	if got.mode == modeDeleteConfirm {
 		t.Fatal("confirm dialog should close after delete")
 	}
-	if !strings.Contains(got.toast.Message, "deleted feature") || got.toast.Kind != toastSuccess {
+	if !strings.Contains(got.toast.Message, "deleted feature") || got.toast.Kind != components.ToastSuccess {
 		t.Fatalf("toast = %#v, want deleted feature success", got.toast)
 	}
 }
@@ -2267,7 +2263,7 @@ func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
 	}
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
-	model.deps.deleteWorktree = func(context.Context, gitview.Worktree) error { return nil }
+	model.deleteWorktree = func(context.Context, gitview.Worktree) error { return nil }
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
 	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
@@ -2280,7 +2276,7 @@ func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
 	if duplicate != nil {
 		t.Fatal("duplicate confirm delete should be ignored while delete is in flight")
 	}
-	if !got.deletingWorktree {
+	if !got.confirm.IsSubmitting() {
 		t.Fatal("delete should remain in flight until command finishes")
 	}
 }
@@ -2304,8 +2300,8 @@ func TestTabSwitchesWorktree(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(Model)
 
-	if got.selectedWorktreeValue().Branch != "feature" || got.Selected().Path != "feature.go" {
-		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.selectedWorktreeValue().Branch, got.Selected().Path)
+	if got.selectedWorktreeValue().Branch != "feature" || got.selectedFileValue().Path != "feature.go" {
+		t.Fatalf("selected worktree/file = %q/%q, want feature/feature.go", got.selectedWorktreeValue().Branch, got.selectedFileValue().Path)
 	}
 	if !strings.Contains(got.View().Content, "● [1]-") {
 		t.Fatalf("worktree panel should be focused after tab: %q", got.View().Content)
@@ -2419,27 +2415,6 @@ func TestEditorTargetLineUsesDeletionPositionWhenNoAddedLines(t *testing.T) {
 	}
 }
 
-func TestEditorLaunchScriptSupportsLineAwareEditors(t *testing.T) {
-	for _, tc := range []struct {
-		editor string
-		line   int
-		want   string
-	}{
-		{editor: "nvim", line: 12, want: `${EDITOR:-vi} "+${LINE}" "$1"`},
-		{editor: "vim -f", line: 12, want: `${EDITOR:-vi} "+${LINE}" "$1"`},
-		{editor: "code --wait", line: 12, want: `${EDITOR:-vi} --goto "$1:$LINE"`},
-		{editor: "code-insiders", line: 12, want: `${EDITOR:-vi} --goto "$1:$LINE"`},
-		{editor: "true", line: 12, want: `${EDITOR:-vi} "$1"`},
-		{editor: "nvim", line: 0, want: `${EDITOR:-vi} "$1"`},
-	} {
-		t.Run(tc.editor, func(t *testing.T) {
-			if got := editorLaunchScript(tc.editor, tc.line); got != tc.want {
-				t.Fatalf("editorLaunchScript(%q, %d) = %q, want %q", tc.editor, tc.line, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestEditKeyShowsToastWhenNoFileSelected(t *testing.T) {
 	model := testModel(t)
 	model.changes = nil
@@ -2452,7 +2427,7 @@ func TestEditKeyShowsToastWhenNoFileSelected(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("e without selected file should return toast command")
 	}
-	if got.toast.Message != "no file selected" || got.toast.Kind != toastInfo {
+	if got.toast.Message != "no file selected" || got.toast.Kind != components.ToastInfo {
 		t.Fatalf("toast = %#v, want info no file selected", got.toast)
 	}
 }
@@ -2466,7 +2441,7 @@ func TestEditorFailureShowsToast(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("editor failure should return toast command")
 	}
-	if !strings.Contains(got.toast.Message, "editor failed: boom") || got.toast.Kind != toastError {
+	if !strings.Contains(got.toast.Message, "editor failed: boom") || got.toast.Kind != components.ToastError {
 		t.Fatalf("toast = %#v, want editor failure error", got.toast)
 	}
 }
@@ -2533,14 +2508,14 @@ func TestMouseWheelScrollsDiffPanel(t *testing.T) {
 	if got.focusedPane != paneDiff {
 		t.Fatalf("wheel over diff focusedPane = %v, want paneDiff", got.focusedPane)
 	}
-	if got.diff.viewport.YOffset() == 0 {
+	if got.diff.YOffset() == 0 {
 		t.Fatal("wheel down over diff should scroll viewport")
 	}
 
 	next, _ = got.Update(tea.MouseWheelMsg{X: leftWidth + 2, Y: 5, Button: tea.MouseWheelUp})
 	got = next.(Model)
-	if got.diff.viewport.YOffset() != 0 {
-		t.Fatalf("wheel up over diff y offset = %d, want 0", got.diff.viewport.YOffset())
+	if got.diff.YOffset() != 0 {
+		t.Fatalf("wheel up over diff y offset = %d, want 0", got.diff.YOffset())
 	}
 }
 
@@ -2578,8 +2553,8 @@ func TestMouseWheelDoesNotScrollDiffBehindOverlays(t *testing.T) {
 			if got.focusedPane != paneFiles {
 				t.Fatalf("wheel behind %s focusedPane = %v, want paneFiles", tc.name, got.focusedPane)
 			}
-			if got.diff.viewport.YOffset() != 0 {
-				t.Fatalf("wheel behind %s y offset = %d, want 0", tc.name, got.diff.viewport.YOffset())
+			if got.diff.YOffset() != 0 {
+				t.Fatalf("wheel behind %s y offset = %d, want 0", tc.name, got.diff.YOffset())
 			}
 		})
 	}
@@ -2603,8 +2578,8 @@ func TestMouseWheelScrollsOverlapCompareWithoutScrollingDiff(t *testing.T) {
 	if got.overlap.compareYOffset == 0 {
 		t.Fatal("wheel down should scroll overlap compare")
 	}
-	if got.diff.viewport.YOffset() != 0 {
-		t.Fatalf("wheel over compare scrolled diff y offset = %d, want 0", got.diff.viewport.YOffset())
+	if got.diff.YOffset() != 0 {
+		t.Fatalf("wheel over compare scrolled diff y offset = %d, want 0", got.diff.YOffset())
 	}
 
 	next, _ = got.Update(tea.MouseWheelMsg{X: 10, Y: 5, Button: tea.MouseWheelUp})
@@ -2620,8 +2595,8 @@ func TestSidebarPanelsFillBodyHeight(t *testing.T) {
 	model.height = 30
 	leftWidth, _ := model.layoutWidths()
 	contentHeight := model.bodyHeight()
-	worktrees := model.renderWorktrees(leftWidth, model.worktreePaneHeight(contentHeight))
-	files := model.renderFiles(leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)))
+	worktrees := model.render(model.styles, model.panel, model.focusedPane == paneWorktrees, leftWidth, model.worktreePaneHeight(contentHeight))
+	files := model.fileListComponent().Render(model.styles, model.panel, model.focusedPane == paneFiles, leftWidth, max(4, contentHeight-lipgloss.Height(worktrees)), model.fileBadge(), model.visibleOverlapCount())
 	sidebar := lipgloss.JoinVertical(lipgloss.Left, worktrees, files)
 
 	if got := lipgloss.Height(sidebar); got != contentHeight {
@@ -2639,7 +2614,7 @@ func TestInitSchedulesAutoRefresh(t *testing.T) {
 
 func TestAutoRefreshReloadsChanges(t *testing.T) {
 	model := testModel(t)
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Changes: []gitview.FileChange{{Path: "fresh.go", Status: gitview.Added}},
 			Diffs:   map[string]string{"fresh.go": "diff --git a/fresh.go b/fresh.go\n+fresh"},
@@ -2658,8 +2633,8 @@ func TestAutoRefreshReloadsChanges(t *testing.T) {
 	next, _ = next.(Model).Update(msg)
 	got := next.(Model)
 
-	if got.Selected().Path != "fresh.go" {
-		t.Fatalf("Selected() = %q, want fresh.go", got.Selected().Path)
+	if got.selectedFileValue().Path != "fresh.go" {
+		t.Fatalf("Selected() = %q, want fresh.go", got.selectedFileValue().Path)
 	}
 	if !strings.Contains(got.View().Content, "fresh") {
 		t.Fatalf("View() missing refreshed diff: %q", got.View().Content)
@@ -2668,7 +2643,7 @@ func TestAutoRefreshReloadsChanges(t *testing.T) {
 
 func TestAutoRefreshSkipsReloadWhilePreviousReloadIsInFlight(t *testing.T) {
 	model := testModel(t)
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Changes: []gitview.FileChange{{Path: "fresh.go", Status: gitview.Added}},
 			Diffs:   map[string]string{"fresh.go": "diff --git a/fresh.go b/fresh.go\n+fresh"},
@@ -2708,7 +2683,8 @@ func TestAutoRefreshPreservesMergeTargetPicker(t *testing.T) {
 	if model.mode != modeMergeTarget {
 		t.Fatal("merge target picker should be open before refresh")
 	}
-	model.merge.targetList.Select(1)
+	next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = next.(Model)
 
 	model.applySnapshot(Snapshot{
 		Worktrees: []WorktreeState{
@@ -2727,9 +2703,8 @@ func TestAutoRefreshPreservesMergeTargetPicker(t *testing.T) {
 	if model.merge.source.Branch != "feature" {
 		t.Fatalf("mergeSource = %#v, want refreshed feature source", model.merge.source)
 	}
-	selected, ok := model.merge.targetList.SelectedItem().(mergeTargetItem)
-	if !ok || selected.worktree.Branch != "dev" {
-		t.Fatalf("selected merge target = %#v, want dev", model.merge.targetList.SelectedItem())
+	if got := model.merge.selectedTargetPath(); got != "/repo/.worktrees/dev" {
+		t.Fatalf("selected merge target = %q, want dev", got)
 	}
 }
 
@@ -2775,7 +2750,9 @@ func TestAutoRefreshPreservesMergeConfirmation(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	model = next.(Model)
-	model.merge.merging = true
+	if !model.confirm.Submit() {
+		t.Fatal("merge confirmation should enter submitting state")
+	}
 	if model.mode != modeMergeConfirm {
 		t.Fatal("merge confirmation should be open before refresh")
 	}
@@ -2793,7 +2770,7 @@ func TestAutoRefreshPreservesMergeConfirmation(t *testing.T) {
 	if model.mode != modeMergeConfirm {
 		t.Fatal("refresh should preserve merge confirmation")
 	}
-	if !model.merge.merging {
+	if !model.confirm.IsSubmitting() {
 		t.Fatal("refresh should preserve in-flight merge state")
 	}
 	if model.mode == modeMergeTarget {
@@ -2813,7 +2790,7 @@ func TestAutoRefreshPreservesSelectedFileWhenNewFileIsAdded(t *testing.T) {
 	model.worktrees[model.selectedWorktree].Changes = model.changes
 	model.selected = 1
 	model.refreshDiff()
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		changes := []gitview.FileChange{
 			{Path: "new.go", Status: gitview.Added},
 			{Path: "a.go", Status: gitview.Modified},
@@ -2843,8 +2820,8 @@ func TestAutoRefreshPreservesSelectedFileWhenNewFileIsAdded(t *testing.T) {
 	next, _ = next.(Model).Update(batch[0]())
 	got := next.(Model)
 
-	if got.Selected().Path != "b.go" {
-		t.Fatalf("Selected() = %q, want b.go", got.Selected().Path)
+	if got.selectedFileValue().Path != "b.go" {
+		t.Fatalf("Selected() = %q, want b.go", got.selectedFileValue().Path)
 	}
 	if !strings.Contains(got.View().Content, "+b") {
 		t.Fatalf("View() should keep selected file diff: %q", got.View().Content)
@@ -2866,8 +2843,8 @@ func TestAutoRefreshSkipsUnchangedSnapshot(t *testing.T) {
 		" line-5",
 	}, "\n")}
 	model.refreshDiff()
-	model.diff.viewport.SetYOffset(3)
-	yOffset := model.diff.viewport.YOffset()
+	model.diff.SetYOffset(3)
+	yOffset := model.diff.YOffset()
 	model.refreshGeneration = 7
 	model.refreshInFlight = true
 	revision := model.revision
@@ -2893,8 +2870,8 @@ func TestAutoRefreshSkipsUnchangedSnapshot(t *testing.T) {
 	if got.refreshInFlight {
 		t.Fatal("unchanged snapshot should clear refreshInFlight")
 	}
-	if got.diff.viewport.YOffset() != yOffset {
-		t.Fatalf("unchanged snapshot y offset = %d, want %d", got.diff.viewport.YOffset(), yOffset)
+	if got.diff.YOffset() != yOffset {
+		t.Fatalf("unchanged snapshot y offset = %d, want %d", got.diff.YOffset(), yOffset)
 	}
 }
 
@@ -2905,11 +2882,11 @@ func TestAutoRefreshPreservesSelectedDiffWhenLineStatsAreUnchanged(t *testing.T)
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+old"}
 	model.refreshDiff()
 	loads := 0
-	model.deps.loadDiff = func(context.Context, string, gitview.FileChange) string {
+	model.loadDiff = func(context.Context, string, gitview.FileChange) string {
 		loads++
 		return "diff --git a/a.go b/a.go\n+fresh"
 	}
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Worktrees: []WorktreeState{{
 				Worktree: model.selectedWorktreeValue(),
@@ -2949,12 +2926,12 @@ func TestAutoRefreshReloadsSelectedDiffWhenFingerprintChanges(t *testing.T) {
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+old"}
 	model.refreshDiff()
 	loads := 0
-	model.deps.loadDiff = func(context.Context, string, gitview.FileChange) string {
+	model.loadDiff = func(context.Context, string, gitview.FileChange) string {
 		loads++
 		return "diff --git a/a.go b/a.go\n+fresh"
 	}
 	freshChanges := []gitview.FileChange{{Path: "a.go", Status: gitview.Modified, Additions: 1, Fingerprint: "fresh"}}
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Worktrees: []WorktreeState{{
 				Worktree: model.selectedWorktreeValue(),
@@ -2994,11 +2971,11 @@ func TestAutoRefreshReloadsSelectedDiffWhenLineStatsChange(t *testing.T) {
 	model.worktrees[model.selectedWorktree].Changes = model.changes
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+old"}
 	model.refreshDiff()
-	model.deps.loadDiff = func(context.Context, string, gitview.FileChange) string {
+	model.loadDiff = func(context.Context, string, gitview.FileChange) string {
 		return "diff --git a/a.go b/a.go\n+fresh"
 	}
 	freshChanges := []gitview.FileChange{{Path: "a.go", Status: gitview.Modified, Additions: 2}}
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Worktrees: []WorktreeState{{
 				Worktree: model.selectedWorktreeValue(),
@@ -3051,8 +3028,8 @@ func TestAutoRefreshPreservesDiffScrollForSelectedFile(t *testing.T) {
 	}, "\n")
 	model.diffs = map[string]string{"a.go": diff}
 	model.refreshDiff()
-	model.diff.viewport.SetYOffset(5)
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.diff.SetYOffset(5)
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Changes: []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
 			Diffs:   map[string]string{"a.go": diff + "\n line-11"},
@@ -3070,8 +3047,8 @@ func TestAutoRefreshPreservesDiffScrollForSelectedFile(t *testing.T) {
 	next, _ = next.(Model).Update(batch[0]())
 	got := next.(Model)
 
-	if got.diff.viewport.YOffset() != 5 {
-		t.Fatalf("diff y offset after refresh = %d, want 5", got.diff.viewport.YOffset())
+	if got.diff.YOffset() != 5 {
+		t.Fatalf("diff y offset after refresh = %d, want 5", got.diff.YOffset())
 	}
 }
 
@@ -3099,14 +3076,14 @@ func TestAutoRefreshPreservesDiffScrollWhenSelectedDiffReloadsLazily(t *testing.
 	model.diffs = map[string]string{"b.go": selectedDiff}
 	model.selected = 1
 	model.refreshDiff()
-	model.diff.viewport.SetYOffset(5)
-	model.deps.reload = func(context.Context, string) Snapshot {
+	model.diff.SetYOffset(5)
+	model.reload = func(context.Context, string) Snapshot {
 		return Snapshot{
 			Changes: model.changes,
 			Diffs:   map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},
 		}
 	}
-	model.deps.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return selectedDiff + "\n refreshed-" + change.Path
 	}
 
@@ -3125,10 +3102,10 @@ func TestAutoRefreshPreservesDiffScrollWhenSelectedDiffReloadsLazily(t *testing.
 	next, _ = next.(Model).Update(cmd())
 	got := next.(Model)
 
-	if got.diff.viewport.YOffset() != 5 {
-		t.Fatalf("diff y offset after lazy reload = %d, want 5", got.diff.viewport.YOffset())
+	if got.diff.YOffset() != 5 {
+		t.Fatalf("diff y offset after lazy model.reload = %d, want 5", got.diff.YOffset())
 	}
-	if !strings.Contains(got.diffs[got.diffKey(got.Selected())], "refreshed-b.go") {
+	if !strings.Contains(got.diffs[got.diffKey(got.selectedFileValue())], "refreshed-b.go") {
 		t.Fatalf("selected diff was not lazily reloaded: %#v", got.diffs)
 	}
 }
@@ -3138,7 +3115,7 @@ func TestAutoRefreshUsesConfiguredContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	model.context = ctx
-	model.deps.reload = func(ctx context.Context, _ string) Snapshot {
+	model.reload = func(ctx context.Context, _ string) Snapshot {
 		if ctx.Err() == nil {
 			t.Fatal("reload context was not canceled")
 		}
@@ -3165,7 +3142,7 @@ func TestMouseClickSelectsFile(t *testing.T) {
 	model.refreshDiff()
 
 	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 7}))
-	got := next.(Model).Selected()
+	got := next.(Model).selectedFileValue()
 
 	if got.Path != "b.go" {
 		t.Fatalf("Selected() = %q, want b.go", got.Path)
@@ -3205,7 +3182,7 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 		{Path: "b.go", Status: gitview.Modified},
 	}
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
-	model.deps.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
 	}
 	model.refreshDiff()
@@ -3225,16 +3202,16 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 
 func TestMouseClickSelectsTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
 	model.openThemePicker()
-	overlay := model.renderThemePicker()
-	x, y := model.overlayPosition(overlay)
+	overlay := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
+	x, y := components.OverlayPosition(overlay, model.width, model.bodyHeight())
 
 	next, _ := model.Update(tea.MouseClickMsg(tea.Mouse{X: x + 2, Y: y + 4}))
 	got := next.(Model)
 
-	if got.themePicker.name != "gruvbox-dark" {
-		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.name)
+	if got.themePicker.Name != "gruvbox-dark" {
+		t.Fatalf("themeName = %q, want gruvbox-dark", got.themePicker.Name)
 	}
 	if got.mode == modeThemePicker {
 		t.Fatal("theme picker still open after mouse selection")
@@ -3296,7 +3273,7 @@ func TestFileFilterShowsOverlayAndFilteredFileTitle(t *testing.T) {
 	if got := len(model.visibleChanges()); got != 2 {
 		t.Fatalf("visible filtered changes = %d, want 2", got)
 	}
-	if got := model.Selected().Path; got != "internal/tui/model.go" {
+	if got := model.selectedFileValue().Path; got != "internal/tui/model.go" {
 		t.Fatalf("selected filtered file = %q, want internal/tui/model.go", got)
 	}
 	if strings.Contains(view, "internal/git/repository.go") {
@@ -3355,7 +3332,7 @@ func TestFileFilterEscClearsFilterAndPreservesSelection(t *testing.T) {
 		next, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: string(key), Code: key}))
 		model = next.(Model)
 	}
-	if got := model.Selected().Path; got != "internal/tui/model.go" {
+	if got := model.selectedFileValue().Path; got != "internal/tui/model.go" {
 		t.Fatalf("filtered selected path = %q, want internal/tui/model.go", got)
 	}
 
@@ -3369,7 +3346,7 @@ func TestFileFilterEscClearsFilterAndPreservesSelection(t *testing.T) {
 	if !strings.Contains(view, "3 files") || !strings.Contains(view, "README.md") {
 		t.Fatalf("esc did not restore full file list: %q", view)
 	}
-	if got := model.Selected().Path; got != "internal/tui/model.go" {
+	if got := model.selectedFileValue().Path; got != "internal/tui/model.go" {
 		t.Fatalf("selection after clearing filter = %q, want internal/tui/model.go", got)
 	}
 }
@@ -3394,7 +3371,7 @@ func TestFileFilterSelectsFirstMatchWhenCurrentFileDoesNotMatch(t *testing.T) {
 		model = next.(Model)
 	}
 
-	if got := model.Selected().Path; got != "internal/tui/model.go" {
+	if got := model.selectedFileValue().Path; got != "internal/tui/model.go" {
 		t.Fatalf("selected path after filtering = %q, want first match", got)
 	}
 }
@@ -3417,14 +3394,14 @@ func TestDiffGoTopBottomKeepsDiffFocus(t *testing.T) {
 		" line-11",
 		" line-12",
 	}, "\n"))
-	model.diff.viewport.SetHeight(4)
+	model.diff.SetSize(model.diff.Width(), 4)
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
 	model = next.(Model)
 	if model.focusedPane != paneDiff {
 		t.Fatalf("G from diff focusedPane = %v, want paneDiff", model.focusedPane)
 	}
-	if model.diff.viewport.YOffset() == 0 {
+	if model.diff.YOffset() == 0 {
 		t.Fatal("G from diff should move viewport to bottom")
 	}
 
@@ -3433,8 +3410,8 @@ func TestDiffGoTopBottomKeepsDiffFocus(t *testing.T) {
 	if model.focusedPane != paneDiff {
 		t.Fatalf("g from diff focusedPane = %v, want paneDiff", model.focusedPane)
 	}
-	if model.diff.viewport.YOffset() != 0 {
-		t.Fatalf("g from diff y offset = %d, want 0", model.diff.viewport.YOffset())
+	if model.diff.YOffset() != 0 {
+		t.Fatalf("g from diff y offset = %d, want 0", model.diff.YOffset())
 	}
 }
 
@@ -3445,7 +3422,7 @@ func TestSelectionLoadsMissingDiffLazily(t *testing.T) {
 		{Path: "b.go", Status: gitview.Modified},
 	}
 	model.diffs = map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"}
-	model.deps.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+b"
 	}
 	model.refreshDiff()
@@ -3467,7 +3444,7 @@ func TestStaleLazyDiffDoesNotOverwriteRefreshedSnapshot(t *testing.T) {
 	model := testModel(t)
 	model.changes = []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}}
 	model.diffs = map[string]string{}
-	model.deps.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+stale"
 	}
 	model.refreshDiff()
@@ -3486,6 +3463,36 @@ func TestStaleLazyDiffDoesNotOverwriteRefreshedSnapshot(t *testing.T) {
 	view := got.View().Content
 	if strings.Contains(view, "stale") || !strings.Contains(view, "fresh") {
 		t.Fatalf("stale lazy diff overwrote refreshed snapshot: %q", view)
+	}
+}
+
+func TestSelectionChangeForcesSelectedDiffReload(t *testing.T) {
+	model := testModel(t)
+	model.changes = []gitview.FileChange{
+		{Path: "a.go", Status: gitview.Modified},
+		{Path: "b.go", Status: gitview.Modified},
+	}
+	model.diffs = map[string]string{
+		model.diffKey(model.changes[0]): "diff --git a/a.go b/a.go\n+cached-a",
+		model.diffKey(model.changes[1]): "diff --git a/b.go b/b.go\n+cached-b",
+	}
+	model.loadDiff = func(_ context.Context, _ string, change gitview.FileChange) string {
+		return "diff --git a/" + change.Path + " b/" + change.Path + "\n+reloaded-" + change.Path
+	}
+	model.refreshDiff()
+
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	if cmd == nil {
+		t.Fatal("selection change should force selected diff reload")
+	}
+	next, _ = next.(Model).Update(cmd())
+	got := next.(Model)
+
+	if diff := got.diffs[got.diffKey(got.selectedFileValue())]; !strings.Contains(diff, "reloaded-b.go") {
+		t.Fatalf("selected diff = %q, want reloaded b.go", diff)
+	}
+	if view := ansi.Strip(got.View().Content); !strings.Contains(view, "reloaded-b.go") {
+		t.Fatalf("view missing reloaded selected diff: %q", view)
 	}
 }
 
@@ -3515,7 +3522,7 @@ func TestStaleRefreshDoesNotOverwriteNewerSnapshot(t *testing.T) {
 func TestRefreshStartInvalidatesPendingLazyDiff(t *testing.T) {
 	model := testModel(t)
 	model.diffs = map[string]string{}
-	model.deps.loadDiff = func(context.Context, string, gitview.FileChange) string {
+	model.loadDiff = func(context.Context, string, gitview.FileChange) string {
 		return "diff --git a/a.go b/a.go\n+stale"
 	}
 	model.refreshDiff()
@@ -3568,9 +3575,9 @@ func overlapTestModel(t *testing.T) Model {
 	model.selectedWorktree = 0
 	model.normalizeWorktrees()
 	model.diffs = map[string]string{
-		model.diffKey(model.Selected()): "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-current\n+current",
+		model.diffKey(model.selectedFileValue()): "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-current\n+current",
 	}
-	model.deps.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
+	model.loadDiff = func(_ context.Context, worktreePath string, change gitview.FileChange) string {
 		return "diff --git a/" + change.Path + " b/" + change.Path + "\n@@ -1 +1 @@\n-overlap\n+feature " + worktreePath
 	}
 	model.refreshDiff()

@@ -1,0 +1,27 @@
+package components
+
+const (
+	IconFile      = "󰈙"
+	IconWorktree  = "󰙅"
+	IconBranch    = ""
+	IconModified  = ""
+	IconAdded     = ""
+	IconDeleted   = ""
+	IconRenamed   = "󰁕"
+	IconUntracked = ""
+	IconBinary    = ""
+	IconTheme     = ""
+	IconQuit      = "󰩈"
+	IconKey       = "󰌌"
+	IconEdit      = ""
+	IconWrap      = "󰖶"
+	IconNumbers   = "󰎠"
+	IconProtected = ""
+	IconPR        = ""
+	IconMerge     = ""
+	IconStatus    = "󰎟"
+	IconSelected  = "▸"
+	IconToggleOn  = ""
+	IconToggleOff = ""
+	IconWarning   = ""
+)

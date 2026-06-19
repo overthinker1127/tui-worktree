@@ -1,6 +1,10 @@
 package tui
 
-import gitview "github.com/overthinker1127/tui-worktree/internal/git"
+import (
+	gitview "github.com/overthinker1127/tui-worktree/internal/git"
+	"github.com/overthinker1127/tui-worktree/internal/theme"
+	"github.com/overthinker1127/tui-worktree/internal/tui/components"
+)
 
 type worktreeList struct {
 	worktrees        []WorktreeState
@@ -32,24 +36,20 @@ func (l *worktreeList) normalize(fallbackChanges []gitview.FileChange, fallbackE
 }
 
 func (l *worktreeList) move(delta int) (WorktreeState, bool) {
-	if len(l.worktrees) == 0 {
+	list := l.component()
+	if !list.Move(delta) {
 		return WorktreeState{}, false
 	}
-	l.selectedWorktree += delta
-	if l.selectedWorktree < 0 {
-		l.selectedWorktree = len(l.worktrees) - 1
-	}
-	if l.selectedWorktree >= len(l.worktrees) {
-		l.selectedWorktree = 0
-	}
+	l.selectedWorktree = list.Selected
 	return l.worktrees[l.selectedWorktree], true
 }
 
 func (l *worktreeList) selectIndex(index int) (WorktreeState, bool) {
-	if index < 0 || index >= len(l.worktrees) {
+	list := l.component()
+	if !list.SelectIndex(index) {
 		return WorktreeState{}, false
 	}
-	l.selectedWorktree = index
+	l.selectedWorktree = list.Selected
 	return l.worktrees[index], true
 }
 
@@ -83,25 +83,44 @@ func (l worktreeList) byPath(path string) (gitview.Worktree, bool) {
 }
 
 func (l worktreeList) offset(height int) int {
-	if len(l.worktrees) == 0 {
-		return 0
-	}
-	visibleRows := l.visibleRows(height)
-	if l.selectedWorktree < visibleRows {
-		return 0
-	}
-	offset := l.selectedWorktree - visibleRows + 1
-	maxOffset := max(0, len(l.worktrees)-visibleRows)
-	if offset > maxOffset {
-		return maxOffset
-	}
-	return offset
+	return l.component().Offset(height)
 }
 
-func (l worktreeList) visibleRows(height int) int {
-	visibleRows := max(1, panelInnerHeight(height))
-	if len(l.worktrees) > visibleRows {
-		return max(1, visibleRows-1)
+func (l worktreeList) maxScrollX(styles theme.Styles, available int) int {
+	return l.component().MaxScrollX(styles, available)
+}
+
+func (l worktreeList) render(styles theme.Styles, panel components.Panel, focused bool, width, height int) string {
+	return l.component().Render(styles, panel, focused, width, height)
+}
+
+func (l worktreeList) component() components.WorktreeList {
+	return components.WorktreeList{
+		Items:    worktreeItems(l.worktrees),
+		Selected: l.selectedWorktree,
+		ScrollX:  l.worktreeScrollX,
 	}
-	return visibleRows
+}
+
+func worktreeItems(states []WorktreeState) []components.WorktreeItem {
+	items := make([]components.WorktreeItem, len(states))
+	for i, state := range states {
+		items[i] = worktreeItem(state)
+	}
+	return items
+}
+
+func worktreeItem(state WorktreeState) components.WorktreeItem {
+	worktree := state.Worktree
+	return components.WorktreeItem{
+		ID:        worktree.Path,
+		Label:     worktreeLabel(worktree),
+		Current:   worktree.Current,
+		Protected: worktree.Protected,
+		Error:     state.Error != nil,
+	}
+}
+
+func renderWorktreeLine(styles theme.Styles, _ int, state WorktreeState) string {
+	return components.RenderWorktreeItem(styles, worktreeItem(state))
 }
