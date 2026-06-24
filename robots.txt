@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://overthinker1127.github.io/tui-worktree/sitemap.xml

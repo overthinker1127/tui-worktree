@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A terminal UI for reviewing AI-generated Git worktree changes.</strong>
+  <strong>A git worktree TUI and worktree diff viewer for reviewing AI-generated code changes.</strong>
 </p>
 
 ## Demo
@@ -18,13 +18,13 @@
 
 ## Project overview
 
-`tui-worktree` is a terminal UI for reviewing changes across Git worktrees, especially when AI coding agents create work in parallel.
+`tui-worktree` is a git worktree TUI and worktree diff viewer for reviewing changes across Git worktrees, especially when AI coding agents create work in parallel.
 
 When you work with tools like **Superpower**, **Codex**, or **Claude Code**, the AI can create useful changes quickly, but reviewing those changes can still feel scattered. You may need to jump between worktrees, file lists, editor tabs, and `git diff` just to answer a simple question: "What changed, and do I trust it?"
 
 `tui-worktree` puts that review in one place. You can move through worktrees, see changed files, read the diff, filter by path, and open the exact file you care about without breaking flow.
 
-It is built to make **AI-agent-driven coding sessions** easier to trust: keep generated work isolated in worktrees, inspect every change from one focused TUI, then decide whether to merge, continue, or delete it.
+It is built as an **AI coding review tool** for agent-driven development: keep generated work isolated in worktrees, inspect every change from one focused TUI, then decide whether to merge, continue, or delete it.
 
 The project is written in Go and uses Bubble Tea, Bubbles, and Lip Gloss for the TUI.
 
