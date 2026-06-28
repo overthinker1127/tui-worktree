@@ -12,7 +12,6 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 		"tokyonight",
 		"tokyonight-night",
 		"tokyonight-storm",
-		"kanagawa",
 		"kanagawa-wave",
 		"kanagawa-dragon",
 		"catppuccin",
@@ -62,7 +61,7 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 }
 
 func TestPresetRejectsUnknownTheme(t *testing.T) {
-	for _, name := range []string{"unknown", "dark", "light", "catppucine"} {
+	for _, name := range []string{"unknown", "dark", "light", "catppucine", "kanagawa"} {
 		if _, err := Preset(name); err == nil {
 			t.Fatalf("Preset(%q) error = nil, want non-nil", name)
 		}
@@ -104,10 +103,13 @@ func TestNamesIncludesOnlyNamedThemes(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"vscode", "catppuccin", "gruvbox-dark", "solarized-dark", "tokyonight", "kanagawa"} {
+	for _, want := range []string{"vscode", "catppuccin", "gruvbox-dark", "solarized-dark", "tokyonight", "kanagawa-wave"} {
 		if !contains(names, want) {
 			t.Fatalf("Names() missing %q: %#v", want, names)
 		}
+	}
+	if contains(names, "kanagawa") {
+		t.Fatalf("Names() included kanagawa alias: %#v", names)
 	}
 }
 

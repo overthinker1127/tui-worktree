@@ -57,11 +57,11 @@ func (f fakeRootRepo) Root(context.Context) (string, error) {
 }
 
 func TestParseArgs(t *testing.T) {
-	got, err := ParseArgs([]string{"--theme", "kanagawa", "--repo", "/tmp/repo", "--transparent"})
+	got, err := ParseArgs([]string{"--theme", "kanagawa-wave", "--repo", "/tmp/repo", "--transparent"})
 	if err != nil {
 		t.Fatalf("ParseArgs() error = %v", err)
 	}
-	if got.Theme != "kanagawa" || got.Dir != "/tmp/repo" || !got.Transparent {
+	if got.Theme != "kanagawa-wave" || got.Dir != "/tmp/repo" || !got.Transparent {
 		t.Fatalf("ParseArgs() = %#v", got)
 	}
 }
@@ -91,15 +91,15 @@ func TestSaveLoadConfig(t *testing.T) {
 	t.Setenv("HOME", configHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
-	if err := SaveConfig(UserConfig{Theme: "kanagawa", Transparent: true}); err != nil {
+	if err := SaveConfig(UserConfig{Theme: "kanagawa-wave", Transparent: true}); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 	got, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if got.Theme != "kanagawa" {
-		t.Fatalf("Theme = %q, want kanagawa", got.Theme)
+	if got.Theme != "kanagawa-wave" {
+		t.Fatalf("Theme = %q, want kanagawa-wave", got.Theme)
 	}
 	if !got.Transparent {
 		t.Fatal("Transparent = false, want true")
@@ -123,8 +123,8 @@ func TestResolveThemeUsesConfigUnlessFlagProvided(t *testing.T) {
 	if got := ResolveTheme(Options{}); got != "gruvbox-dark" {
 		t.Fatalf("ResolveTheme() = %q, want gruvbox-dark", got)
 	}
-	if got := ResolveTheme(Options{Theme: "kanagawa"}); got != "kanagawa" {
-		t.Fatalf("ResolveTheme(flag) = %q, want kanagawa", got)
+	if got := ResolveTheme(Options{Theme: "kanagawa-wave"}); got != "kanagawa-wave" {
+		t.Fatalf("ResolveTheme(flag) = %q, want kanagawa-wave", got)
 	}
 }
 
@@ -146,10 +146,13 @@ func TestResolveTransparentUsesConfigOrFlag(t *testing.T) {
 
 func TestUsageMentionsThemes(t *testing.T) {
 	usage := Usage("tui-worktree")
-	for _, want := range []string{"tokyonight", "kanagawa", "--theme", "--transparent", "--version"} {
+	for _, want := range []string{"tokyonight", "kanagawa-wave", "--theme", "--transparent", "--version"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("Usage() missing %q in %q", want, usage)
 		}
+	}
+	if strings.Contains(usage, "kanagawa,") {
+		t.Fatalf("Usage() should not include kanagawa alias: %q", usage)
 	}
 	if !strings.Contains(usage, "tui-worktree") {
 		t.Fatalf("Usage() missing command name: %q", usage)

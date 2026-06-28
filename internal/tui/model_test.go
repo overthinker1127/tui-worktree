@@ -187,7 +187,7 @@ func TestThemePickerPreservesTransparentStyles(t *testing.T) {
 
 func TestThemePickerSavesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight", "kanagawa"}
+	model.themePicker.Names = []string{"tokyonight", "kanagawa-wave"}
 	var saved string
 	model.saveTheme = func(name string) error {
 		saved = name
@@ -198,8 +198,8 @@ func TestThemePickerSavesTheme(t *testing.T) {
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
 	_, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 
-	if saved != "kanagawa" {
-		t.Fatalf("saved theme = %q, want kanagawa", saved)
+	if saved != "kanagawa-wave" {
+		t.Fatalf("saved theme = %q, want kanagawa-wave", saved)
 	}
 }
 
@@ -386,7 +386,7 @@ func TestThemePickerShowsCurrentThemePosition(t *testing.T) {
 func TestThemePickerShowsSpaceToggleHintOnTransparentRow(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.Names = []string{"tokyonight", "kanagawa"}
+	model.themePicker.Names = []string{"tokyonight", "kanagawa-wave"}
 	model.themePicker.Cursor = 0
 	model.mode = modeThemePicker
 
@@ -459,7 +459,7 @@ func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	model.height = 12
 	model.themePicker.Names = []string{
 		"ayu", "catppuccin", "dracula", "everforest", "gruvbox-dark",
-		"kanagawa", "monokai", "nord", "one-dark", "rose-pine",
+		"kanagawa-wave", "monokai", "nord", "one-dark", "rose-pine",
 		"solarized-dark", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
 	}
 	model.themePicker.Cursor = 8

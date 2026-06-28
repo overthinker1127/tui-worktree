@@ -108,7 +108,7 @@ tui-worktree --repo /path/to/repo
 Use a specific theme for one run:
 
 ```bash
-tui-worktree --theme kanagawa
+tui-worktree --theme kanagawa-wave
 ```
 
 Use your terminal background instead of theme-painted backgrounds:

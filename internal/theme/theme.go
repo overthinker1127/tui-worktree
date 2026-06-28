@@ -61,7 +61,6 @@ var presets = map[string]Theme{
 		Panel:         "#1f2335",
 		PanelSelected: "#292e42",
 	},
-	"kanagawa":      kanagawaWave(),
 	"kanagawa-wave": kanagawaWave(),
 	"kanagawa-dragon": {
 		Name:          "kanagawa-dragon",
