@@ -2009,6 +2009,13 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 	if !got.confirm.IsSubmitting() {
 		t.Fatal("merge should remain in flight until command finishes")
 	}
+	view := ansi.Strip(got.View().Content)
+	if !strings.Contains(view, "In progress") || !strings.Contains(view, "=") {
+		t.Fatalf("merge in-flight view should show progress bar: %q", view)
+	}
+	if strings.Contains(view, "[Y]es") || strings.Contains(view, "[N]o") {
+		t.Fatalf("merge in-flight view should hide confirm buttons: %q", view)
+	}
 }
 
 func TestPRKeyShowsErrorToastWhenForgeCLIIsMissing(t *testing.T) {
@@ -2278,6 +2285,13 @@ func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
 	}
 	if !got.confirm.IsSubmitting() {
 		t.Fatal("delete should remain in flight until command finishes")
+	}
+	view := ansi.Strip(got.View().Content)
+	if !strings.Contains(view, "In progress") || !strings.Contains(view, "=") {
+		t.Fatalf("delete in-flight view should show progress bar: %q", view)
+	}
+	if strings.Contains(view, "[Y]es") || strings.Contains(view, "[N]o") {
+		t.Fatalf("delete in-flight view should hide confirm buttons: %q", view)
 	}
 }
 

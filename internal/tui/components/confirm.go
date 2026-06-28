@@ -99,14 +99,6 @@ func (c Confirm) Render() string {
 		Background(panel.GetBackground()).
 		Bold(true)
 	title := renderLine(titleStyle, width, c.title, 0)
-	yes := confirmButton(c.styles, "Y", "es")
-	no := confirmButton(c.styles, "N", "o")
-	options := lipgloss.NewStyle().
-		Background(panel.GetBackground()).
-		Width(width).
-		Align(lipgloss.Center).
-		Render(yes + lineStyle.Render("     ") + no)
-
 	lines := []string{
 		title,
 		lineStyle.Width(width).Render(""),
@@ -118,10 +110,19 @@ func (c Confirm) Render() string {
 		}
 		lines = append(lines, renderLine(lineStyle, width, line, 0))
 	}
-	lines = append(lines,
-		lineStyle.Width(width).Render(""),
-		options,
-	)
+	lines = append(lines, lineStyle.Width(width).Render(""))
+	if c.submitting {
+		lines = append(lines, RenderProgressBar(lineStyle, c.styles.key, width, "In progress"))
+	} else {
+		yes := confirmButton(c.styles, "Y", "es")
+		no := confirmButton(c.styles, "N", "o")
+		options := lipgloss.NewStyle().
+			Background(panel.GetBackground()).
+			Width(width).
+			Align(lipgloss.Center).
+			Render(yes + lineStyle.Render("     ") + no)
+		lines = append(lines, options)
+	}
 	panel = panel.Padding(1, 2)
 	return panel.Width(width + panel.GetHorizontalFrameSize()).Render(strings.Join(lines, "\n"))
 }
