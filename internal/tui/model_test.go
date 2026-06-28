@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -1890,7 +1891,7 @@ func TestMergeTargetEnterShowsConfirmationBeforeRunningMerge(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("merge confirm enter should return merge command")
 	}
-	next, _ = next.(Model).Update(cmd())
+	next, _ = next.(Model).Update(commandMsgOfType[mergeBranchFinishedMsg](t, cmd))
 	got = next.(Model)
 
 	if gotReq.Source.Branch != "feature" || gotReq.Target.Branch != "main" {
@@ -1997,7 +1998,9 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
 	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
-	if cmd == nil {
+	batch := requireBatchCommand(t, cmd, 2)
+	requireBatchMsg[spinner.TickMsg](t, batch)
+	if _, ok := batchMsgOfType[mergeBranchFinishedMsg](batch); !ok {
 		t.Fatal("merge confirm enter should return command")
 	}
 	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Code: '\r'}))
@@ -2010,8 +2013,14 @@ func TestMergeTargetEnterIgnoresDuplicateWhileInFlight(t *testing.T) {
 		t.Fatal("merge should remain in flight until command finishes")
 	}
 	view := ansi.Strip(got.View().Content)
-	if !strings.Contains(view, "In progress") || !strings.Contains(view, "=") {
-		t.Fatalf("merge in-flight view should show progress bar: %q", view)
+	if !strings.Contains(view, "In progress") {
+		t.Fatalf("merge in-flight view should show progress text: %q", view)
+	}
+	progressLine := ansi.Strip(findRenderedLine(view, "In progress"))
+	for _, token := range []string{"[", "]", "="} {
+		if strings.Contains(progressLine, token) {
+			t.Fatalf("merge in-flight progress line should not show progress bar token %q: %q", token, progressLine)
+		}
 	}
 	if strings.Contains(view, "[Y]es") || strings.Contains(view, "[N]o") {
 		t.Fatalf("merge in-flight view should hide confirm buttons: %q", view)
@@ -2247,7 +2256,7 @@ func TestConfirmDeleteRunsDeleteCallback(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirm delete should return command")
 	}
-	msg := cmd()
+	msg := commandMsgOfType[deleteWorktreeFinishedMsg](t, cmd)
 	next, _ = next.(Model).Update(msg)
 	got := next.(Model)
 
@@ -2274,7 +2283,9 @@ func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
 	next, cmd := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
-	if cmd == nil {
+	batch := requireBatchCommand(t, cmd, 2)
+	requireBatchMsg[spinner.TickMsg](t, batch)
+	if _, ok := batchMsgOfType[deleteWorktreeFinishedMsg](batch); !ok {
 		t.Fatal("first confirm delete should return command")
 	}
 	next, duplicate := next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
@@ -2287,8 +2298,14 @@ func TestConfirmDeleteIgnoresDuplicateWhileInFlight(t *testing.T) {
 		t.Fatal("delete should remain in flight until command finishes")
 	}
 	view := ansi.Strip(got.View().Content)
-	if !strings.Contains(view, "In progress") || !strings.Contains(view, "=") {
-		t.Fatalf("delete in-flight view should show progress bar: %q", view)
+	if !strings.Contains(view, "In progress") {
+		t.Fatalf("delete in-flight view should show progress text: %q", view)
+	}
+	progressLine := ansi.Strip(findRenderedLine(view, "In progress"))
+	for _, token := range []string{"[", "]", "="} {
+		if strings.Contains(progressLine, token) {
+			t.Fatalf("delete in-flight progress line should not show progress bar token %q: %q", token, progressLine)
+		}
 	}
 	if strings.Contains(view, "[Y]es") || strings.Contains(view, "[N]o") {
 		t.Fatalf("delete in-flight view should hide confirm buttons: %q", view)
@@ -2770,6 +2787,7 @@ func TestAutoRefreshPreservesMergeConfirmation(t *testing.T) {
 	if model.mode != modeMergeConfirm {
 		t.Fatal("merge confirmation should be open before refresh")
 	}
+	tick := model.confirm.Tick()
 
 	model.applySnapshot(Snapshot{
 		Worktrees: []WorktreeState{
@@ -2792,6 +2810,31 @@ func TestAutoRefreshPreservesMergeConfirmation(t *testing.T) {
 	}
 	if model.merge.request.Source.Branch != "feature" || model.merge.request.Target.Branch != "main" {
 		t.Fatalf("merge request = %#v, want feature into main", model.merge.request)
+	}
+	if _, cmd := model.Update(tick); cmd == nil {
+		t.Fatal("refresh should preserve pending merge spinner ticks")
+	}
+}
+
+func TestWindowResizePreservesPendingConfirmSpinnerTick(t *testing.T) {
+	model := testModel(t)
+	model.worktrees = []WorktreeState{
+		{Worktree: gitview.Worktree{Path: "/repo/.worktrees/feature", Branch: "feature"}},
+	}
+	model.selectedWorktree = 0
+	model.normalizeWorktrees()
+	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	model = next.(Model)
+	if !model.confirm.Submit() {
+		t.Fatal("delete confirmation should enter submitting state")
+	}
+	tick := model.confirm.Tick()
+
+	next, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = next.(Model)
+
+	if _, cmd := model.Update(tick); cmd == nil {
+		t.Fatal("resize should preserve pending confirm spinner ticks")
 	}
 }
 
@@ -3639,6 +3682,67 @@ func findRenderedLine(rendered, plainSubstring string) string {
 		}
 	}
 	return ""
+}
+
+func requireBatchCommand(t *testing.T, cmd tea.Cmd, wantLen int) tea.BatchMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("command is nil")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("command message = %T, want tea.BatchMsg", msg)
+	}
+	if len(batch) != wantLen {
+		t.Fatalf("batch command length = %d, want %d", len(batch), wantLen)
+	}
+	return batch
+}
+
+func commandMsgOfType[T any](t *testing.T, cmd tea.Cmd) T {
+	t.Helper()
+	var zero T
+	if cmd == nil {
+		t.Fatal("command is nil")
+	}
+	msg := cmd()
+	if got, ok := msg.(T); ok {
+		return got
+	}
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("command message = %T, want %T or tea.BatchMsg", msg, zero)
+	}
+	got, ok := batchMsgOfType[T](batch)
+	if !ok {
+		t.Fatalf("batch command missing message type %T", zero)
+	}
+	return got
+}
+
+func requireBatchMsg[T any](t *testing.T, batch tea.BatchMsg) T {
+	t.Helper()
+	var zero T
+	got, ok := batchMsgOfType[T](batch)
+	if !ok {
+		t.Fatalf("batch command missing message type %T", zero)
+	}
+	return got
+}
+
+func batchMsgOfType[T any](batch tea.BatchMsg) (T, bool) {
+	var zero T
+	for _, cmd := range batch {
+		if cmd == nil {
+			continue
+		}
+		msg := cmd()
+		if got, ok := msg.(T); ok {
+			return got, true
+		}
+	}
+	return zero, false
 }
 
 func countEscape(value string, want string) int {

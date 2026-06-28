@@ -3,6 +3,8 @@ package components
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -26,6 +28,7 @@ type Confirm struct {
 	styles     confirmStyles
 	width      int
 	submitting bool
+	spinner    spinner.Model
 }
 
 type confirmStyles struct {
@@ -58,12 +61,17 @@ func (c *Confirm) SetStyles(styles theme.Styles, panel lipgloss.Style, width int
 		key:   styles.DiffHunk,
 	}
 	c.width = width
+	if c.spinner.ID() == 0 {
+		c.spinner = newConfirmSpinner(c.styles.key)
+	} else {
+		c.spinner.Style = c.styles.key
+	}
 }
 
 func (c *Confirm) Close() {
 	styles := c.styles
 	width := c.width
-	*c = Confirm{styles: styles, width: width}
+	*c = Confirm{styles: styles, width: width, spinner: newConfirmSpinner(styles.key)}
 }
 
 func (c *Confirm) Submit() bool {
@@ -76,6 +84,19 @@ func (c *Confirm) Submit() bool {
 
 func (c Confirm) IsSubmitting() bool {
 	return c.submitting
+}
+
+func (c Confirm) Tick() tea.Msg {
+	return c.spinner.Tick()
+}
+
+func (c *Confirm) Update(msg spinner.TickMsg) tea.Cmd {
+	if !c.submitting {
+		return nil
+	}
+	next, cmd := c.spinner.Update(msg)
+	c.spinner = next
+	return cmd
 }
 
 func (c Confirm) Choice(key string) ConfirmChoice {
@@ -112,7 +133,7 @@ func (c Confirm) Render() string {
 	}
 	lines = append(lines, lineStyle.Width(width).Render(""))
 	if c.submitting {
-		lines = append(lines, RenderProgressBar(lineStyle, c.styles.key, width, "In progress"))
+		lines = append(lines, c.renderProgress(width))
 	} else {
 		yes := confirmButton(c.styles, "Y", "es")
 		no := confirmButton(c.styles, "N", "o")
@@ -127,11 +148,29 @@ func (c Confirm) Render() string {
 	return panel.Width(width + panel.GetHorizontalFrameSize()).Render(strings.Join(lines, "\n"))
 }
 
+func (c Confirm) renderProgress(width int) string {
+	panel := c.styles.panel
+	lineStyle := c.styles.line
+	progress := c.spinner.View() + lineStyle.Inline(true).Render(" In progress")
+	return lipgloss.NewStyle().
+		Background(panel.GetBackground()).
+		Width(width).
+		Align(lipgloss.Center).
+		Render(progress)
+}
+
 func (c Confirm) renderWidth() int {
 	if c.width <= 0 {
 		return defaultConfirmWidth
 	}
 	return c.width
+}
+
+func newConfirmSpinner(style lipgloss.Style) spinner.Model {
+	return spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(style),
+	)
 }
 
 func confirmButton(styles confirmStyles, key, label string) string {

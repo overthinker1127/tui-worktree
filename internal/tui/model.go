@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -169,6 +170,11 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if !m.confirm.IsSubmitting() {
+			return m, nil
+		}
+		return m, m.confirm.Update(msg)
 	case reloadMsg:
 		if msg.generation == m.refreshGeneration {
 			m.refreshInFlight = false
@@ -769,7 +775,7 @@ func (m Model) handleDeleteConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		if !m.confirm.Submit() {
 			return m, nil
 		}
-		return m, m.deleteSelectedWorktreeCmd()
+		return m, tea.Batch(m.deleteSelectedWorktreeCmd(), m.confirm.Tick)
 	case components.ConfirmNo:
 		if m.confirm.IsSubmitting() {
 			return m, nil
@@ -1158,9 +1164,9 @@ func (m *Model) mergeConfirmedTargetCmd() tea.Cmd {
 	if !m.confirm.Submit() {
 		return nil
 	}
-	return func() tea.Msg {
+	return tea.Batch(func() tea.Msg {
 		return mergeBranchFinishedMsg{request: request, err: m.mergeBranch(m.context, request)}
-	}
+	}, m.confirm.Tick)
 }
 
 func (m *Model) applyThemeCursor() tea.Cmd {
@@ -1386,9 +1392,6 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 	}
 	m.merge.clearTargetPicker()
 	m.merge.finish()
-	if preserveMergeConfirm {
-		m.confirm.Close()
-	}
 	m.revision++
 	m.worktrees = snapshot.Worktrees
 	m.selectedWorktree = snapshot.SelectedWorktree
@@ -1399,11 +1402,14 @@ func (m *Model) applySnapshot(snapshot Snapshot) (bool, int, bool) {
 	m.err = snapshot.Error
 	m.normalizeWorktrees()
 	if preserveMergeConfirm {
-		if request, ok := m.refreshedMergeRequest(mergeRequest); ok {
+		request, ok := m.refreshedMergeRequest(mergeRequest)
+		if ok {
 			m.mode = modeMergeConfirm
 			m.merge.openConfirm(request)
 			title, message := mergeConfirmText(request)
 			m.confirm.Restore(title, message, preserveMergeSubmitting)
+		} else {
+			m.confirm.Close()
 		}
 	}
 	if m.mode != modeMergeConfirm && preserveMergeTargetPicker {

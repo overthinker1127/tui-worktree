@@ -271,9 +271,20 @@ func TestLoadModelWiresDeleteWorktree(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirm delete returned nil command")
 	}
-	_, _ = next.(tui.Model).Update(cmd())
+	runCommand(cmd)
 
 	if len(repo.deleted) != 1 || repo.deleted[0].Branch != "feature" {
 		t.Fatalf("deleted = %#v, want feature", repo.deleted)
+	}
+}
+
+func runCommand(cmd tea.Cmd) {
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, batchedCmd := range batch {
+			if batchedCmd != nil {
+				runCommand(batchedCmd)
+			}
+		}
 	}
 }
