@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestMergeBranchSwitchesPullsAndMerges(t *testing.T) {
 func TestMergeBranchBlocksDirtySourceWorktree(t *testing.T) {
 	sourceDir := t.TempDir()
 	targetDir := t.TempDir()
-	logPath := installFakeGit(t, "if [ \"$PWD\" = "+sourceDir+" ]; then printf '?? scratch.txt\\n'; fi\n")
+	logPath := installFakeGit(t, "if [ \"$(pwd -P)\" = "+shellQuote(realPath(t, sourceDir))+" ]; then printf '?? scratch.txt\\n'; fi\n")
 
 	err := MergeBranch(context.Background(), MergeRequest{
 		Source: gitview.Worktree{Path: sourceDir, Branch: "feature"},
@@ -66,7 +67,7 @@ func TestMergeBranchBlocksDirtySourceWorktree(t *testing.T) {
 func TestMergeBranchBlocksDirtyTargetWorktree(t *testing.T) {
 	sourceDir := t.TempDir()
 	targetDir := t.TempDir()
-	logPath := installFakeGit(t, "if [ \"$PWD\" = "+targetDir+" ]; then printf ' M README.md\\n?? scratch.txt\\n'; fi\n")
+	logPath := installFakeGit(t, "if [ \"$(pwd -P)\" = "+shellQuote(realPath(t, targetDir))+" ]; then printf ' M README.md\\n?? scratch.txt\\n'; fi\n")
 
 	err := MergeBranch(context.Background(), MergeRequest{
 		Source: gitview.Worktree{Path: sourceDir, Branch: "feature"},
@@ -137,4 +138,17 @@ func installFakeGit(t *testing.T, body string) string {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return logPath
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func realPath(t *testing.T, path string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("eval symlinks for %s: %v", path, err)
+	}
+	return real
 }
