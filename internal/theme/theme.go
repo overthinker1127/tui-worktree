@@ -26,7 +26,7 @@ type Theme struct {
 
 func Preset(name string) (Theme, error) {
 	if name == "" {
-		name = "tokyonight"
+		name = "tokyonight-night"
 	}
 	if theme, ok := presets[name]; ok {
 		return theme, nil
@@ -44,7 +44,6 @@ func Names() []string {
 }
 
 var presets = map[string]Theme{
-	"tokyonight":       tokyoNight(),
 	"tokyonight-night": tokyoNight(),
 	"tokyonight-storm": {
 		Name:          "tokyonight-storm",
@@ -77,7 +76,6 @@ var presets = map[string]Theme{
 		Panel:         "#0d0c0c",
 		PanelSelected: "#1d1c19",
 	},
-	"catppuccin":        catppuccinMocha(),
 	"catppuccin-frappe": catppuccinFrappe(),
 	"catppuccin-latte":  catppuccinLatte(),
 	"catppuccin-mocha":  catppuccinMocha(),
@@ -162,7 +160,6 @@ var presets = map[string]Theme{
 		Panel:         "#21252b",
 		PanelSelected: "#353b45",
 	},
-	"vscode":      vscodeDark(),
 	"vscode-dark": vscodeDark(),
 	"monokai": {
 		Name:          "monokai",
@@ -194,7 +191,6 @@ var presets = map[string]Theme{
 		Panel:         "#232a2e",
 		PanelSelected: "#343f44",
 	},
-	"ayu":            ayuMirage(),
 	"ayu-mirage":     ayuMirage(),
 	"github-dark":    githubDark(),
 	"github-light":   githubLight(),

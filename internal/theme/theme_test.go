@@ -9,12 +9,10 @@ import (
 
 func TestPresetReturnsBuiltInThemes(t *testing.T) {
 	for _, name := range []string{
-		"tokyonight",
 		"tokyonight-night",
 		"tokyonight-storm",
 		"kanagawa-wave",
 		"kanagawa-dragon",
-		"catppuccin",
 		"catppuccin-frappe",
 		"catppuccin-latte",
 		"catppuccin-mocha",
@@ -29,11 +27,9 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 		"rose-pine-dawn",
 		"rose-pine-moon",
 		"one-dark",
-		"vscode",
 		"vscode-dark",
 		"monokai",
 		"everforest",
-		"ayu",
 		"ayu-mirage",
 		"github-dark",
 		"github-light",
@@ -61,7 +57,7 @@ func TestPresetReturnsBuiltInThemes(t *testing.T) {
 }
 
 func TestPresetRejectsUnknownTheme(t *testing.T) {
-	for _, name := range []string{"unknown", "dark", "light", "catppucine", "kanagawa"} {
+	for _, name := range []string{"unknown", "dark", "light", "catppucine", "kanagawa", "tokyonight", "catppuccin", "vscode", "ayu"} {
 		if _, err := Preset(name); err == nil {
 			t.Fatalf("Preset(%q) error = nil, want non-nil", name)
 		}
@@ -70,7 +66,7 @@ func TestPresetRejectsUnknownTheme(t *testing.T) {
 
 func TestPresetKeywordColorsUseSyntaxThemeColors(t *testing.T) {
 	tests := map[string]string{
-		"tokyonight":       "#bb9af7",
+		"tokyonight-night": "#bb9af7",
 		"catppuccin-mocha": "#cba6f7",
 		"dracula":          "#ff79c6",
 		"github-dark":      "#ff7b72",
@@ -103,20 +99,37 @@ func TestNamesIncludesOnlyNamedThemes(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"vscode", "catppuccin", "gruvbox-dark", "solarized-dark", "tokyonight", "kanagawa-wave"} {
+	for _, want := range []string{"vscode-dark", "catppuccin-mocha", "gruvbox-dark", "solarized-dark", "tokyonight-night", "kanagawa-wave"} {
 		if !contains(names, want) {
 			t.Fatalf("Names() missing %q: %#v", want, names)
 		}
 	}
-	if contains(names, "kanagawa") {
-		t.Fatalf("Names() included kanagawa alias: %#v", names)
+	for _, alias := range []string{"kanagawa", "tokyonight", "catppuccin", "vscode", "ayu"} {
+		if contains(names, alias) {
+			t.Fatalf("Names() included alias %q: %#v", alias, names)
+		}
+	}
+}
+
+func TestPresetPalettesAreUnique(t *testing.T) {
+	seen := map[Theme]string{}
+	for _, name := range Names() {
+		tm, err := Preset(name)
+		if err != nil {
+			t.Fatalf("Preset(%q) error = %v", name, err)
+		}
+		tm.Name = ""
+		if previous, ok := seen[tm]; ok {
+			t.Fatalf("Preset(%q) duplicates palette from %q", name, previous)
+		}
+		seen[tm] = name
 	}
 }
 
 func TestNewStylesBuildsRenderableStyles(t *testing.T) {
-	tm, err := Preset("tokyonight")
+	tm, err := Preset("tokyonight-night")
 	if err != nil {
-		t.Fatalf("Preset(\"tokyonight\") error = %v", err)
+		t.Fatalf("Preset(\"tokyonight-night\") error = %v", err)
 	}
 
 	styles := NewStyles(tm)
@@ -181,9 +194,9 @@ func TestDiffKeywordFallsBackToAccentColor(t *testing.T) {
 }
 
 func TestDiffStylesUseLineBackgrounds(t *testing.T) {
-	tm, err := Preset("tokyonight")
+	tm, err := Preset("tokyonight-night")
 	if err != nil {
-		t.Fatalf("Preset(\"tokyonight\") error = %v", err)
+		t.Fatalf("Preset(\"tokyonight-night\") error = %v", err)
 	}
 
 	styles := NewStyles(tm)
@@ -204,9 +217,9 @@ func TestDiffStylesUseLineBackgrounds(t *testing.T) {
 }
 
 func TestTransparentStylesDoNotPaintBackgrounds(t *testing.T) {
-	tm, err := Preset("tokyonight")
+	tm, err := Preset("tokyonight-night")
 	if err != nil {
-		t.Fatalf("Preset(\"tokyonight\") error = %v", err)
+		t.Fatalf("Preset(\"tokyonight-night\") error = %v", err)
 	}
 
 	styles := NewStylesWithOptions(tm, StyleOptions{Transparent: true})

@@ -35,7 +35,7 @@ func NewThemePicker(name string, transparent bool, names []string) ThemePicker {
 
 func (p *ThemePicker) Normalize() {
 	if p.Name == "" {
-		p.Name = "tokyonight"
+		p.Name = "tokyonight-night"
 	}
 	if len(p.Names) == 0 {
 		p.Names = theme.Names()

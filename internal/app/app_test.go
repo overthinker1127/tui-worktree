@@ -146,16 +146,26 @@ func TestResolveTransparentUsesConfigOrFlag(t *testing.T) {
 
 func TestUsageMentionsThemes(t *testing.T) {
 	usage := Usage("tui-worktree")
-	for _, want := range []string{"tokyonight", "kanagawa-wave", "--theme", "--transparent", "--version"} {
+	for _, want := range []string{"tokyonight-night", "catppuccin-mocha", "vscode-dark", "ayu-mirage", "kanagawa-wave", "--theme", "--transparent", "--version"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("Usage() missing %q in %q", want, usage)
 		}
 	}
-	if strings.Contains(usage, "kanagawa,") {
-		t.Fatalf("Usage() should not include kanagawa alias: %q", usage)
+	for _, alias := range []string{"kanagawa", "tokyonight", "catppuccin", "vscode", "ayu"} {
+		if strings.Contains(usage, alias+",") {
+			t.Fatalf("Usage() should not include alias %q: %q", alias, usage)
+		}
 	}
 	if !strings.Contains(usage, "tui-worktree") {
 		t.Fatalf("Usage() missing command name: %q", usage)
+	}
+}
+
+func TestResolveThemeUsesFullDefaultThemeName(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if got := ResolveTheme(Options{}); got != "tokyonight-night" {
+		t.Fatalf("ResolveTheme(default) = %q, want tokyonight-night", got)
 	}
 }
 
@@ -192,7 +202,7 @@ func TestLoadModelRendersRepositoryData(t *testing.T) {
 		changes: []gitview.FileChange{{Path: "main.go", Status: gitview.Modified}},
 		diffs:   map[string]string{"main.go": "diff --git a/main.go b/main.go\n+package main"},
 	}
-	model := LoadModel(context.Background(), repo, "tokyonight")
+	model := LoadModel(context.Background(), repo, "tokyonight-night")
 
 	view := model.View().Content
 	if !strings.Contains(view, "main.go") || !strings.Contains(view, "diff --git") {
@@ -212,7 +222,7 @@ func TestLoadModelLoadsOnlySelectedDiffInitially(t *testing.T) {
 		},
 	}
 
-	_ = LoadModel(context.Background(), repo, "tokyonight")
+	_ = LoadModel(context.Background(), repo, "tokyonight-night")
 
 	if len(repo.calls) != 1 || repo.calls[0] != "a.go" {
 		t.Fatalf("Diff calls = %#v, want only selected file", repo.calls)
@@ -243,7 +253,7 @@ func TestReloadSnapshotDoesNotLoadDiff(t *testing.T) {
 }
 
 func TestLoadModelRendersGitError(t *testing.T) {
-	model := LoadModel(context.Background(), &fakeRepo{err: errors.New("not a git repository")}, "tokyonight")
+	model := LoadModel(context.Background(), &fakeRepo{err: errors.New("not a git repository")}, "tokyonight-night")
 
 	view := model.View().Content
 	if !strings.Contains(view, "not a git repository") {
@@ -267,7 +277,7 @@ func TestLoadModelWiresDeleteWorktree(t *testing.T) {
 	repo := &fakeRepo{
 		worktrees: []gitview.Worktree{{Path: "/repo/.worktrees/feature", Branch: "feature"}},
 	}
-	model := LoadModel(context.Background(), repo, "tokyonight")
+	model := LoadModel(context.Background(), repo, "tokyonight-night")
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
 	next, cmd := next.(tui.Model).Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))

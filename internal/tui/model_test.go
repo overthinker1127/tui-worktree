@@ -18,7 +18,7 @@ import (
 )
 
 func TestModelViewShowsFileListAndDiff(t *testing.T) {
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
@@ -51,12 +51,12 @@ func TestModelViewShowsFileListAndDiff(t *testing.T) {
 }
 
 func TestModelViewSupportsTransparentBackground(t *testing.T) {
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	model := NewModel(Config{
-		ThemeName:   "tokyonight",
+		ThemeName:   "tokyonight-night",
 		Theme:       theme.NewStylesWithOptions(tm, theme.StyleOptions{Transparent: true}),
 		Transparent: true,
 		Width:       100,
@@ -85,7 +85,7 @@ func TestModelViewSupportsTransparentBackground(t *testing.T) {
 }
 
 func TestNewModelUsesConfiguredInitialSize(t *testing.T) {
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestNewModelUsesConfiguredInitialSize(t *testing.T) {
 }
 
 func TestModelMovesSelectionDown(t *testing.T) {
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestQuestionMarkDoesNotOpenHelpOverlay(t *testing.T) {
 
 func TestThemePickerAppliesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight-night", "gruvbox-dark"}
 
 	next, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}))
 	next, _ = next.(Model).Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
@@ -159,15 +159,15 @@ func TestThemePickerAppliesTheme(t *testing.T) {
 }
 
 func TestThemePickerPreservesTransparentStyles(t *testing.T) {
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	model := NewModel(Config{
-		ThemeName:   "tokyonight",
+		ThemeName:   "tokyonight-night",
 		Theme:       theme.NewStylesWithOptions(tm, theme.StyleOptions{Transparent: true}),
 		Transparent: true,
-		ThemeNames:  []string{"tokyonight", "gruvbox-dark"},
+		ThemeNames:  []string{"tokyonight-night", "gruvbox-dark"},
 		Changes:     []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
 		Diffs:       map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},
 	})
@@ -187,7 +187,7 @@ func TestThemePickerPreservesTransparentStyles(t *testing.T) {
 
 func TestThemePickerSavesTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight", "kanagawa-wave"}
+	model.themePicker.Names = []string{"tokyonight-night", "kanagawa-wave"}
 	var saved string
 	model.saveTheme = func(name string) error {
 		saved = name
@@ -205,12 +205,12 @@ func TestThemePickerSavesTheme(t *testing.T) {
 
 func TestThemePickerRendersAsOverlay(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight-night", "gruvbox-dark"}
 	model.openThemePicker()
 
 	view := model.View().Content
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Themes", "Transparent background  ", "a.go", components.IconSelected + " tokyonight"} {
+	for _, want := range []string{"Themes", "Transparent background  ", "a.go", components.IconSelected + " tokyonight-night"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("theme overlay view missing %q in %q", want, view)
 		}
@@ -222,7 +222,7 @@ func TestThemePickerRendersAsOverlay(t *testing.T) {
 
 func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight"}
+	model.themePicker.Names = []string{"tokyonight-night"}
 	var saved *bool
 	model.saveTransparent = func(value bool) error {
 		saved = &value
@@ -250,7 +250,7 @@ func TestThemePickerTransparentRowSpaceTogglesBackground(t *testing.T) {
 
 func TestThemePickerTransparentRowEnterDoesNotToggleBackground(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight"}
+	model.themePicker.Names = []string{"tokyonight-night"}
 	model.themePicker.Transparent = true
 	var saved *bool
 	model.saveTransparent = func(value bool) error {
@@ -282,11 +282,11 @@ func TestThemePickerRowsUsePanelColors(t *testing.T) {
 	model := NewModel(Config{
 		ThemeName:  "solarized-light",
 		Theme:      theme.NewStyles(tm),
-		ThemeNames: []string{"solarized-light", "ayu"},
+		ThemeNames: []string{"solarized-light", "ayu-mirage"},
 	})
 	model.openThemePicker()
 
-	row := findRenderedLine(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()), "  ayu")
+	row := findRenderedLine(model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()), "  ayu-mirage")
 	if row == "" {
 		t.Fatalf("theme picker missing unselected row: %q", model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle()))
 	}
@@ -305,7 +305,7 @@ func TestOverlayUsesPanelBorderColor(t *testing.T) {
 	model := NewModel(Config{
 		ThemeName:  "solarized-light",
 		Theme:      theme.NewStyles(tm),
-		ThemeNames: []string{"solarized-light", "ayu"},
+		ThemeNames: []string{"solarized-light", "ayu-mirage"},
 	})
 	model.openThemePicker()
 	picker := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
@@ -386,7 +386,7 @@ func TestThemePickerShowsCurrentThemePosition(t *testing.T) {
 func TestThemePickerShowsSpaceToggleHintOnTransparentRow(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
-	model.themePicker.Names = []string{"tokyonight", "kanagawa-wave"}
+	model.themePicker.Names = []string{"tokyonight-night", "kanagawa-wave"}
 	model.themePicker.Cursor = 0
 	model.mode = modeThemePicker
 
@@ -458,9 +458,9 @@ func TestMouseClickSelectsScrolledTheme(t *testing.T) {
 	model := testModel(t)
 	model.height = 12
 	model.themePicker.Names = []string{
-		"ayu", "catppuccin", "dracula", "everforest", "gruvbox-dark",
+		"ayu-mirage", "catppuccin-mocha", "dracula", "everforest", "gruvbox-dark",
 		"kanagawa-wave", "monokai", "nord", "one-dark", "rose-pine",
-		"solarized-dark", "tokyonight", "vscode", "vscode-dark", "tokyonight-storm",
+		"solarized-dark", "tokyonight-night", "tokyonight-storm", "vscode-dark",
 	}
 	model.themePicker.Cursor = 8
 	model.mode = modeThemePicker
@@ -3259,7 +3259,7 @@ func TestMouseClickLoadsMissingDiffLazily(t *testing.T) {
 
 func TestMouseClickSelectsTheme(t *testing.T) {
 	model := testModel(t)
-	model.themePicker.Names = []string{"tokyonight", "gruvbox-dark"}
+	model.themePicker.Names = []string{"tokyonight-night", "gruvbox-dark"}
 	model.openThemePicker()
 	overlay := model.themePicker.Render(model.width, model.bodyHeight(), model.styles, model.overlayPanelStyle())
 	x, y := components.OverlayPosition(overlay, model.width, model.bodyHeight())
@@ -3599,12 +3599,12 @@ func TestRefreshStartInvalidatesPendingLazyDiff(t *testing.T) {
 
 func testModel(t *testing.T) Model {
 	t.Helper()
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
 	return NewModel(Config{
-		ThemeName: "tokyonight",
+		ThemeName: "tokyonight-night",
 		Theme:     theme.NewStyles(tm),
 		Changes:   []gitview.FileChange{{Path: "a.go", Status: gitview.Modified}},
 		Diffs:     map[string]string{"a.go": "diff --git a/a.go b/a.go\n+a"},

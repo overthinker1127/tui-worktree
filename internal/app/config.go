@@ -65,7 +65,7 @@ func ResolveTheme(opts Options) string {
 	if err == nil && cfg.Theme != "" {
 		return cfg.Theme
 	}
-	return "tokyonight"
+	return "tokyonight-night"
 }
 
 func ResolveTransparent(opts Options) bool {

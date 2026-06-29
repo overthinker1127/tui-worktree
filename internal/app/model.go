@@ -17,7 +17,7 @@ func loadModel(ctx context.Context, repo Repository, themeName string, transpare
 	preset, err := theme.Preset(themeName)
 	themeErr := err
 	if err != nil {
-		preset, _ = theme.Preset("tokyonight")
+		preset, _ = theme.Preset("tokyonight-night")
 	}
 
 	snapshot := loadSnapshot(ctx, repo, "", true)

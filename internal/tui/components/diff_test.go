@@ -223,7 +223,7 @@ func testDiff(t *testing.T, width, height int) Diff {
 
 func testStyles(t *testing.T) theme.Styles {
 	t.Helper()
-	tm, err := theme.Preset("tokyonight")
+	tm, err := theme.Preset("tokyonight-night")
 	if err != nil {
 		t.Fatalf("Preset() error = %v", err)
 	}
